@@ -1,0 +1,11 @@
+{
+  "name": "国道ステッカーコレクション",
+  "short_name": "国道ステッカー",
+  "description": "全国の国道ステッカー収集を記録・管理するアプリ",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#F1EFEA",
+  "theme_color": "#0B4EA2",
+  "orientation": "portrait-primary",
+  "icons": []
+}
