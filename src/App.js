@@ -995,18 +995,54 @@ function ListView({ filtered, layout, setLayout, query, setQuery, filter, setFil
 /* ------------------------------------------------------------------ */
 
 function useLeaflet() {
-  const [ready, setReady] = useState(!!(typeof window !== 'undefined' && window.L));
+  const [ready, setReady] = useState(!!(typeof window !== 'undefined' && window.L && window.L.markerClusterGroup));
   useEffect(() => {
     if (ready) return;
-    if (window.L) { setReady(true); return; }
-    const css = document.createElement('link');
-    css.rel = 'stylesheet';
-    css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
-    document.head.appendChild(css);
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
-    script.onload = () => setReady(true);
-    document.body.appendChild(script);
+    const finish = () => {
+      if (window.L && window.L.markerClusterGroup) setReady(true);
+    };
+    if (window.L && window.L.markerClusterGroup) { setReady(true); return; }
+    if (!document.querySelector('link[data-leaflet-css]')) {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+      css.setAttribute('data-leaflet-css', '1');
+      document.head.appendChild(css);
+    }
+    if (!document.querySelector('link[data-cluster-css]')) {
+      const css2 = document.createElement('link');
+      css2.rel = 'stylesheet';
+      css2.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css';
+      css2.setAttribute('data-cluster-css', '1');
+      document.head.appendChild(css2);
+      const css3 = document.createElement('link');
+      css3.rel = 'stylesheet';
+      css3.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css';
+      css3.setAttribute('data-cluster-css2', '1');
+      document.head.appendChild(css3);
+    }
+    const loadClusterScript = () => {
+      if (window.L.markerClusterGroup) { finish(); return; }
+      if (document.querySelector('script[data-cluster-js]')) {
+        const check = setInterval(() => { if (window.L.markerClusterGroup) { clearInterval(check); finish(); } }, 100);
+        return;
+      }
+      const s2 = document.createElement('script');
+      s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js';
+      s2.setAttribute('data-cluster-js', '1');
+      s2.onload = finish;
+      document.body.appendChild(s2);
+    };
+    if (window.L) { loadClusterScript(); return; }
+    if (!document.querySelector('script[data-leaflet-js]')) {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+      script.setAttribute('data-leaflet-js', '1');
+      script.onload = loadClusterScript;
+      document.body.appendChild(script);
+    } else {
+      const check = setInterval(() => { if (window.L) { clearInterval(check); loadClusterScript(); } }, 100);
+    }
   }, [ready]);
   return ready;
 }
@@ -1061,7 +1097,7 @@ function MapView({ stickers, shops, onOpen }) {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors', maxZoom: 18,
     }).addTo(map);
-    layerRef.current = L.layerGroup().addTo(map);
+    layerRef.current = L.markerClusterGroup({ maxClusterRadius: 40, spiderfyOnMaxZoom: true }).addTo(map);
     mapObjRef.current = map;
   }, [leafletReady]);
 
@@ -1262,6 +1298,19 @@ function NationalMapView({ stickers, shops, onOpen }) {
     return list;
   }, [joined, region, prefecture, statusFilter]);
 
+  /* 同じ場所（同じ緯度経度）の販売店を1グループにまとめ、扱っている全ステッカーを保持する */
+  const grouped = useMemo(() => {
+    const map = new Map();
+    filtered.forEach(sh => {
+      const key = `${Number(sh.lat).toFixed(5)},${Number(sh.lng).toFixed(5)}`;
+      if (!map.has(key)) {
+        map.set(key, { lat: sh.lat, lng: sh.lng, name: sh.name, prefecture: sh.prefecture, items: [] });
+      }
+      map.get(key).items.push(sh);
+    });
+    return Array.from(map.values());
+  }, [filtered]);
+
   useEffect(() => {
     if (!leafletReady || !mapDivRef.current || mapObjRef.current) return;
     const L = window.L;
@@ -1269,7 +1318,7 @@ function NationalMapView({ stickers, shops, onOpen }) {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors', maxZoom: 18,
     }).addTo(map);
-    layerRef.current = L.layerGroup().addTo(map);
+    layerRef.current = L.markerClusterGroup({ maxClusterRadius: 40, spiderfyOnMaxZoom: true }).addTo(map);
     mapObjRef.current = map;
   }, [leafletReady]);
 
@@ -1277,13 +1326,22 @@ function NationalMapView({ stickers, shops, onOpen }) {
     if (!leafletReady || !mapObjRef.current || !layerRef.current) return;
     const L = window.L;
     layerRef.current.clearLayers();
-    filtered.forEach(sh => {
-      const isSelected = sh.sticker.id === selectedId;
-      const fill = isSelected ? '#C0392B' : (sh.sticker.acquired ? '#0B4EA2' : '#B9BDC6');
+    grouped.forEach(group => {
+      const items = group.items;
+      const isMulti = items.length > 1;
+      const isSelected = items.some(sh => sh.sticker.id === selectedId);
+      const anyAcquired = items.some(sh => sh.sticker.acquired);
+      const allAcquired = items.every(sh => sh.sticker.acquired);
+      const fill = isSelected ? '#C0392B' : (allAcquired ? '#0B4EA2' : (anyAcquired ? '#5B8FD1' : '#B9BDC6'));
       const size = isSelected ? 36 : 30;
       const h = Math.round(size * 1.12);
       const outerPath = 'M30,4 L70,4 C85,4 96,15 96,32 C96,52 90,64 78,76 L54,101 C52,104 48,104 46,101 L22,76 C10,64 4,52 4,32 C4,15 15,4 30,4 Z';
       const innerPath = 'M32,10 L68,10 C80,10 90,19 90,33 C90,50 85,60 75,70 L52,95 C51,97 49,97 48,95 L25,70 C15,60 10,50 10,33 C10,19 20,10 32,10 Z';
+      const centerLabel = isMulti
+        ? `<text x="50" y="66" text-anchor="middle" font-family="'Oswald',sans-serif" font-weight="700" font-size="30" fill="#fff">${items.length}</text>
+           <text x="50" y="84" text-anchor="middle" font-family="'Oswald',sans-serif" font-weight="500" font-size="10" fill="#fff" letter-spacing="1">SHOPS</text>`
+        : `<text x="50" y="62" text-anchor="middle" font-family="'Oswald',sans-serif" font-weight="700" font-size="30" fill="#fff">${items[0].sticker.routeNumber}</text>
+           <text x="50" y="80" text-anchor="middle" font-family="'Oswald',sans-serif" font-weight="500" font-size="11" fill="#fff" letter-spacing="1">ROUTE</text>`;
       const icon = L.divIcon({
         className: '',
         html: `<svg width="${size}" height="${h}" viewBox="0 0 100 110" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));">
@@ -1291,29 +1349,42 @@ function NationalMapView({ stickers, shops, onOpen }) {
                  <path d="${innerPath}" fill="${fill}" />
                  <text x="34" y="30" text-anchor="middle" font-family="'Noto Sans JP',sans-serif" font-weight="700" font-size="13" fill="#fff">国</text>
                  <text x="66" y="30" text-anchor="middle" font-family="'Noto Sans JP',sans-serif" font-weight="700" font-size="13" fill="#fff">道</text>
-                 <text x="50" y="62" text-anchor="middle" font-family="'Oswald',sans-serif" font-weight="700" font-size="30" fill="#fff">${sh.sticker.routeNumber}</text>
-                 <text x="50" y="80" text-anchor="middle" font-family="'Oswald',sans-serif" font-weight="500" font-size="11" fill="#fff" letter-spacing="1">ROUTE</text>
+                 ${centerLabel}
                </svg>`,
         iconSize: [size, h], iconAnchor: [size / 2, h * 0.5],
       });
-      const marker = L.marker([sh.lat, sh.lng], { icon }).addTo(layerRef.current);
-      marker.on('click', () => setSelectedId(sh.sticker.id));
+      const marker = L.marker([group.lat, group.lng], { icon }).addTo(layerRef.current);
       const content = document.createElement('div');
       content.style.fontFamily = "'Noto Sans JP', sans-serif";
       content.style.fontSize = '13px';
-      content.innerHTML = `
-        <div style="font-weight:600;margin-bottom:2px;">国道${sh.sticker.routeNumber}号 ${sh.sticker.name || ''}</div>
-        <div style="color:#767b85;margin-bottom:6px;">${sh.prefecture} ・ ${sh.sticker.region}</div>
-        <div style="display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:${sh.sticker.acquired ? '#E4F0FF' : '#F0F0EE'};color:${sh.sticker.acquired ? '#0B4EA2' : '#767b85'};">${sh.sticker.acquired ? '取得済み' : '未取得'}</div>
-      `;
-      const btn = document.createElement('button');
-      btn.textContent = '詳細を開く';
-      btn.style.cssText = 'margin-top:8px;display:block;width:100%;padding:6px 10px;border:none;border-radius:6px;background:#0B4EA2;color:#fff;font-size:12px;font-weight:600;cursor:pointer;';
-      btn.onclick = () => onOpenRef.current(sh.sticker);
-      content.appendChild(btn);
+      content.style.maxHeight = '260px';
+      content.style.overflowY = 'auto';
+      content.style.minWidth = '200px';
+      const header = document.createElement('div');
+      header.style.cssText = 'font-weight:600;margin-bottom:2px;';
+      header.textContent = group.name || '販売店未登録';
+      const sub = document.createElement('div');
+      sub.style.cssText = 'color:#767b85;margin-bottom:8px;';
+      sub.textContent = `${group.prefecture || ''}${isMulti ? ` ・ 取扱${items.length}路線` : ''}`;
+      content.appendChild(header);
+      content.appendChild(sub);
+      items
+        .slice()
+        .sort((a, b) => a.sticker.routeNumber - b.sticker.routeNumber)
+        .forEach(sh => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid #eee;';
+          const left = document.createElement('div');
+          left.style.cssText = 'font-size:12px;cursor:pointer;';
+          left.innerHTML = `<span style="font-weight:600;">国道${sh.sticker.routeNumber}号</span> ${sh.sticker.name || ''}<br/><span style="display:inline-block;margin-top:2px;font-size:10px;font-weight:600;padding:1px 7px;border-radius:999px;background:${sh.sticker.acquired ? '#E4F0FF' : '#F0F0EE'};color:${sh.sticker.acquired ? '#0B4EA2' : '#767b85'};">${sh.sticker.acquired ? '取得済み' : '未取得'}</span>`;
+          left.onclick = () => { setSelectedId(sh.sticker.id); onOpenRef.current(sh.sticker); };
+          row.appendChild(left);
+          content.appendChild(row);
+        });
+      marker.on('click', () => setSelectedId(items[0].sticker.id));
       marker.bindPopup(content);
     });
-  }, [filtered, leafletReady, selectedId]);
+  }, [grouped, leafletReady, selectedId]);
 
   const acquiredCount = new Set(filtered.filter(sh => sh.sticker.acquired).map(sh => sh.sticker.id)).size;
 
