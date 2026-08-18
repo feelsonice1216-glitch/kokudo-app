@@ -15,7 +15,7 @@ import {
 
 const STORAGE_KEY = 'kokudo-data-v2';
 const REGIONS = ['北海道', '東北', '関東', '中部', '近畿', '中国', '四国', '九州・沖縄'];
-const METHODS = ['現地購入', 'イベント', '通販', 'その他'];
+const METHODS = ['現地購入', 'オンライン', 'フリマアプリ', '頂き物', 'その他'];
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -164,7 +164,7 @@ function buildSeed() {
 function emptySticker() {
   return {
     id: null, routeNumber: '', name: '', region: REGIONS[0], releaseDate: '', imageUrl: '', notes: '',
-    acquired: false, acquiredDate: '', acquiredShopId: '', method: '', price: '', memo: '', rating: 0, favorite: false,
+    acquired: false, acquiredDate: '', acquiredShopId: '', method: '', price: '', memo: '', rating: 0, favorite: false, visitedOnly: false,
   };
 }
 
@@ -214,10 +214,10 @@ function toCSVRows(stickers, shops) {
   stickers.forEach(s => {
     const related = shops.filter(sh => sh.stickerId === s.id);
     if (related.length === 0) {
-      rows.push({ routeNumber: s.routeNumber, name: s.name, region: s.region, acquired: s.acquired, acquiredDate: s.acquiredDate, method: s.method, price: s.price, rating: s.rating, favorite: s.favorite, memo: s.memo, shopName: '', address: '', prefecture: '', lat: '', lng: '', businessHours: '', closedDays: '' });
+      rows.push({ routeNumber: s.routeNumber, name: s.name, region: s.region, acquired: s.acquired, acquiredDate: s.acquiredDate, method: s.method, price: s.price, rating: s.rating, favorite: s.favorite, visitedOnly: s.visitedOnly, memo: s.memo, shopName: '', address: '', prefecture: '', lat: '', lng: '', businessHours: '', closedDays: '' });
     } else {
       related.forEach(sh => {
-        rows.push({ routeNumber: s.routeNumber, name: s.name, region: s.region, acquired: s.acquired, acquiredDate: s.acquiredDate, method: s.method, price: s.price, rating: s.rating, favorite: s.favorite, memo: s.memo, shopName: sh.name, address: sh.address, prefecture: sh.prefecture, lat: sh.lat, lng: sh.lng, businessHours: sh.businessHours, closedDays: sh.closedDays });
+        rows.push({ routeNumber: s.routeNumber, name: s.name, region: s.region, acquired: s.acquired, acquiredDate: s.acquiredDate, method: s.method, price: s.price, rating: s.rating, favorite: s.favorite, visitedOnly: s.visitedOnly, memo: s.memo, shopName: sh.name, address: sh.address, prefecture: sh.prefecture, lat: sh.lat, lng: sh.lng, businessHours: sh.businessHours, closedDays: sh.closedDays });
       });
     }
   });
@@ -367,6 +367,9 @@ function DetailModal({ sticker, shopsForSticker, onClose, onSave, onDelete }) {
             </label>
             <label className="chk">
               <input type="checkbox" checked={f.favorite} onChange={e => set('favorite', e.target.checked)} /> お気に入り
+            </label>
+            <label className="chk">
+              <input type="checkbox" checked={f.visitedOnly} onChange={e => set('visitedOnly', e.target.checked)} /> 訪問のみ（未購入）
             </label>
           </div>
 
@@ -617,6 +620,14 @@ export default function App() {
     }));
   };
 
+  const toggleWantToVisit = (shopId) => {
+    setShops(prev => prev.map(sh => sh.id === shopId ? { ...sh, wantToVisit: !sh.wantToVisit } : sh));
+  };
+
+  const toggleRevisit = (shopId) => {
+    setShops(prev => prev.map(sh => sh.id === shopId ? { ...sh, revisit: !sh.revisit } : sh));
+  };
+
   const exportJSON = () => { download('kokudo-stickers.json', JSON.stringify({ stickers, shops }, null, 2)); showToast('JSONを書き出しました'); };
   const exportCSV = () => { download('kokudo-stickers.csv', toCSV(toCSVRows(stickers, shops))); showToast('CSVを書き出しました'); };
 
@@ -638,7 +649,7 @@ export default function App() {
           id: uid(), routeNumber: +r.routeNumber || 0, name: r.name, region: r.region || REGIONS[0],
           releaseDate: '', imageUrl: '', notes: '',
           acquired: r.acquired === 'true', acquiredDate: r.acquiredDate || '', acquiredShopId: '',
-          method: r.method || '', price: +r.price || '', rating: +r.rating || 0, favorite: r.favorite === 'true', memo: r.memo || '',
+          method: r.method || '', price: +r.price || '', rating: +r.rating || 0, favorite: r.favorite === 'true', visitedOnly: r.visitedOnly === 'true', memo: r.memo || '',
           updatedAt: r.acquiredDate || '2026-01-01',
         });
       }
@@ -784,7 +795,7 @@ export default function App() {
         )}
         {view === 'map' && <MapView stickers={stickers} shops={shops} onOpen={openEditor} />}
         {view === 'nationalmap' && <NationalMapView stickers={stickers} shops={shops} onOpen={openEditor} />}
-        {view === 'visitplan' && <VisitPlanView stickers={stickers} shops={shops} onOpen={openEditor} />}
+        {view === 'visitplan' && <VisitPlanView stickers={stickers} shops={shops} onOpen={openEditor} onToggleWantToVisit={toggleWantToVisit} onToggleRevisit={toggleRevisit} />}
         {view === 'album' && <AlbumView stickers={stickers} shops={shops} onOpen={openEditor} />}
         {view === 'stats' && <StatsView stats={stats} stickers={stickers} shops={shops} />}
         {view === 'settings' && (
@@ -1077,6 +1088,7 @@ function MapView({ stickers, shops, onOpen }) {
       );
     }
     if (filter === 'acquired') list = list.filter(sh => sh.sticker.acquired);
+    if (filter === 'visited') list = list.filter(sh => sh.sticker.visitedOnly && !sh.sticker.acquired);
     if (filter === 'pending') list = list.filter(sh => !sh.sticker.acquired);
     if (filter === 'favorite') list = list.filter(sh => sh.sticker.favorite);
     if (myPos) {
@@ -1106,7 +1118,7 @@ function MapView({ stickers, shops, onOpen }) {
     const L = window.L;
     layerRef.current.clearLayers();
     filtered.forEach(sh => {
-      const color = sh.sticker.acquired ? '#0B4EA2' : '#B9BDC6';
+      const color = sh.sticker.acquired ? '#0B4EA2' : (sh.sticker.visitedOnly ? '#8E44AD' : '#B9BDC6');
       const ring = sh.sticker.favorite ? '3px solid #E7A400' : '2px solid #fff';
       const icon = L.divIcon({
         className: '',
@@ -1114,13 +1126,16 @@ function MapView({ stickers, shops, onOpen }) {
         iconSize: [18, 18], iconAnchor: [9, 9],
       });
       const marker = L.marker([sh.lat, sh.lng], { icon }).addTo(layerRef.current);
+      const statusLabel = sh.sticker.acquired ? '取得済み' : (sh.sticker.visitedOnly ? '訪問のみ（未購入）' : '未取得');
+      const statusBg = sh.sticker.acquired ? '#E4F0FF' : (sh.sticker.visitedOnly ? '#F3E8FA' : '#F0F0EE');
+      const statusColor = sh.sticker.acquired ? '#0B4EA2' : (sh.sticker.visitedOnly ? '#8E44AD' : '#767b85');
       const content = document.createElement('div');
       content.style.fontFamily = "'Noto Sans JP', sans-serif";
       content.style.fontSize = '13px';
       content.innerHTML = `
         <div style="font-weight:600;margin-bottom:2px;">国道${sh.sticker.routeNumber}号 ${sh.sticker.name || ''}</div>
         <div style="color:#767b85;margin-bottom:6px;">${sh.name || '販売店未登録'}</div>
-        <div style="display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:${sh.sticker.acquired ? '#E4F0FF' : '#F0F0EE'};color:${sh.sticker.acquired ? '#0B4EA2' : '#767b85'};">${sh.sticker.acquired ? '取得済み' : '未取得'}</div>
+        <div style="display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:${statusBg};color:${statusColor};">${statusLabel}</div>
       `;
       const btn = document.createElement('button');
       btn.textContent = '詳細を開く';
@@ -1174,6 +1189,7 @@ function MapView({ stickers, shops, onOpen }) {
             <select value={filter} onChange={e => setFilter(e.target.value)} style={{ width: '100%', marginBottom: 8 }}>
               <option value="all">すべて表示</option>
               <option value="acquired">取得済みのみ</option>
+              <option value="visited">訪問のみ</option>
               <option value="pending">未取得のみ</option>
               <option value="favorite">お気に入りのみ</option>
             </select>
@@ -1191,8 +1207,9 @@ function MapView({ stickers, shops, onOpen }) {
                 </select>
               </div>
             )}
-            <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
+            <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
               <span><i className="dot" style={{ background: '#0B4EA2' }} /> 取得済み</span>
+              <span><i className="dot" style={{ background: '#8E44AD' }} /> 訪問のみ</span>
               <span><i className="dot" style={{ background: '#B9BDC6' }} /> 未取得</span>
               {myPos && <span><i className="dot" style={{ background: '#2E7D32' }} /> 現在地</span>}
             </div>
@@ -1201,7 +1218,7 @@ function MapView({ stickers, shops, onOpen }) {
             {filtered.length === 0 && <div style={{ padding: 16, fontSize: 13, color: 'var(--muted)' }}>座標(緯度・経度)が登録された販売店がありません。詳細編集画面から登録してください。</div>}
             {filtered.map(sh => (
               <div key={sh.id} className={`map-list-item ${sh.id === selectedId ? 'active' : ''}`} onClick={() => flyTo(sh)}>
-                <span className="dot" style={{ background: sh.sticker.acquired ? '#0B4EA2' : '#B9BDC6' }} />
+                <span className="dot" style={{ background: sh.sticker.acquired ? '#0B4EA2' : (sh.sticker.visitedOnly ? '#8E44AD' : '#B9BDC6') }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>国道{sh.sticker.routeNumber}号 ・ {sh.name || '販売店未登録'}</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)' }}>{sh.prefecture}{typeof sh._dist === 'number' ? ` ・ 約${sh._dist.toFixed(1)}km` : ''}</div>
@@ -1294,6 +1311,7 @@ function NationalMapView({ stickers, shops, onOpen }) {
     if (region !== 'all') list = list.filter(sh => sh.sticker.region === region);
     if (prefecture !== 'all') list = list.filter(sh => sh.prefecture === prefecture);
     if (statusFilter === 'acquired') list = list.filter(sh => sh.sticker.acquired);
+    if (statusFilter === 'visited') list = list.filter(sh => sh.sticker.visitedOnly && !sh.sticker.acquired);
     if (statusFilter === 'pending') list = list.filter(sh => !sh.sticker.acquired);
     return list;
   }, [joined, region, prefecture, statusFilter]);
@@ -1332,27 +1350,43 @@ function NationalMapView({ stickers, shops, onOpen }) {
       const isSelected = items.some(sh => sh.sticker.id === selectedId);
       const anyAcquired = items.some(sh => sh.sticker.acquired);
       const allAcquired = items.every(sh => sh.sticker.acquired);
-      const fill = isSelected ? '#C0392B' : (allAcquired ? '#0B4EA2' : (anyAcquired ? '#5B8FD1' : '#B9BDC6'));
+      const anyVisitedOnly = items.some(sh => sh.sticker.visitedOnly && !sh.sticker.acquired);
+      const fill = isSelected ? '#C0392B' : (allAcquired ? '#0B4EA2' : (anyAcquired ? '#5B8FD1' : (anyVisitedOnly ? '#8E44AD' : '#B9BDC6')));
       const size = isSelected ? 36 : 30;
-      const h = Math.round(size * 1.12);
-      const outerPath = 'M30,4 L70,4 C85,4 96,15 96,32 C96,52 90,64 78,76 L54,101 C52,104 48,104 46,101 L22,76 C10,64 4,52 4,32 C4,15 15,4 30,4 Z';
-      const innerPath = 'M32,10 L68,10 C80,10 90,19 90,33 C90,50 85,60 75,70 L52,95 C51,97 49,97 48,95 L25,70 C15,60 10,50 10,33 C10,19 20,10 32,10 Z';
-      const centerLabel = isMulti
-        ? `<text x="50" y="66" text-anchor="middle" font-family="'Oswald',sans-serif" font-weight="700" font-size="30" fill="#fff">${items.length}</text>
-           <text x="50" y="84" text-anchor="middle" font-family="'Oswald',sans-serif" font-weight="500" font-size="10" fill="#fff" letter-spacing="1">SHOPS</text>`
-        : `<text x="50" y="62" text-anchor="middle" font-family="'Oswald',sans-serif" font-weight="700" font-size="30" fill="#fff">${items[0].sticker.routeNumber}</text>
-           <text x="50" y="80" text-anchor="middle" font-family="'Oswald',sans-serif" font-weight="500" font-size="11" fill="#fff" letter-spacing="1">ROUTE</text>`;
-      const icon = L.divIcon({
-        className: '',
-        html: `<svg width="${size}" height="${h}" viewBox="0 0 100 110" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));">
-                 <path d="${outerPath}" fill="#fff" />
-                 <path d="${innerPath}" fill="${fill}" />
-                 <text x="34" y="30" text-anchor="middle" font-family="'Noto Sans JP',sans-serif" font-weight="700" font-size="13" fill="#fff">国</text>
-                 <text x="66" y="30" text-anchor="middle" font-family="'Noto Sans JP',sans-serif" font-weight="700" font-size="13" fill="#fff">道</text>
-                 ${centerLabel}
-               </svg>`,
-        iconSize: [size, h], iconAnchor: [size / 2, h * 0.5],
-      });
+
+      let icon;
+      if (isMulti) {
+        /* 複数路線を扱う場所：おにぎり型ではなく丸いピンにして、件数バッジを右上に添える（国道番号と混同しないデザイン） */
+        const d = size;
+        icon = L.divIcon({
+          className: '',
+          html: `<div style="position:relative;width:${d}px;height:${d}px;">
+                   <svg width="${d}" height="${d}" viewBox="0 0 100 100" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));">
+                     <circle cx="50" cy="50" r="46" fill="#fff" />
+                     <circle cx="50" cy="50" r="39" fill="${fill}" />
+                     <text x="50" y="60" text-anchor="middle" font-family="'Noto Sans JP',sans-serif" font-weight="700" font-size="30" fill="#fff">店</text>
+                   </svg>
+                   <div style="position:absolute;top:-4px;right:-6px;min-width:20px;height:20px;padding:0 4px;border-radius:10px;background:#E7A400;border:2px solid #fff;color:#fff;font-family:'Noto Sans JP',sans-serif;font-weight:700;font-size:11px;line-height:16px;text-align:center;">${items.length}件</div>
+                 </div>`,
+          iconSize: [d, d], iconAnchor: [d / 2, d / 2],
+        });
+      } else {
+        const h = Math.round(size * 1.12);
+        const outerPath = 'M30,4 L70,4 C85,4 96,15 96,32 C96,52 90,64 78,76 L54,101 C52,104 48,104 46,101 L22,76 C10,64 4,52 4,32 C4,15 15,4 30,4 Z';
+        const innerPath = 'M32,10 L68,10 C80,10 90,19 90,33 C90,50 85,60 75,70 L52,95 C51,97 49,97 48,95 L25,70 C15,60 10,50 10,33 C10,19 20,10 32,10 Z';
+        icon = L.divIcon({
+          className: '',
+          html: `<svg width="${size}" height="${h}" viewBox="0 0 100 110" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));">
+                   <path d="${outerPath}" fill="#fff" />
+                   <path d="${innerPath}" fill="${fill}" />
+                   <text x="34" y="30" text-anchor="middle" font-family="'Noto Sans JP',sans-serif" font-weight="700" font-size="13" fill="#fff">国</text>
+                   <text x="66" y="30" text-anchor="middle" font-family="'Noto Sans JP',sans-serif" font-weight="700" font-size="13" fill="#fff">道</text>
+                   <text x="50" y="62" text-anchor="middle" font-family="'Oswald',sans-serif" font-weight="700" font-size="30" fill="#fff">${items[0].sticker.routeNumber}</text>
+                   <text x="50" y="80" text-anchor="middle" font-family="'Oswald',sans-serif" font-weight="500" font-size="11" fill="#fff" letter-spacing="1">ROUTE</text>
+                 </svg>`,
+          iconSize: [size, h], iconAnchor: [size / 2, h * 0.5],
+        });
+      }
       const marker = L.marker([group.lat, group.lng], { icon }).addTo(layerRef.current);
       const content = document.createElement('div');
       content.style.fontFamily = "'Noto Sans JP', sans-serif";
@@ -1376,7 +1410,10 @@ function NationalMapView({ stickers, shops, onOpen }) {
           row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid #eee;';
           const left = document.createElement('div');
           left.style.cssText = 'font-size:12px;cursor:pointer;';
-          left.innerHTML = `<span style="font-weight:600;">国道${sh.sticker.routeNumber}号</span> ${sh.sticker.name || ''}<br/><span style="display:inline-block;margin-top:2px;font-size:10px;font-weight:600;padding:1px 7px;border-radius:999px;background:${sh.sticker.acquired ? '#E4F0FF' : '#F0F0EE'};color:${sh.sticker.acquired ? '#0B4EA2' : '#767b85'};">${sh.sticker.acquired ? '取得済み' : '未取得'}</span>`;
+          const st = sh.sticker.acquired ? { label: '取得済み', bg: '#E4F0FF', color: '#0B4EA2' }
+            : (sh.sticker.visitedOnly ? { label: '訪問のみ', bg: '#F3E8FA', color: '#8E44AD' }
+              : { label: '未取得', bg: '#F0F0EE', color: '#767b85' });
+          left.innerHTML = `<span style="font-weight:600;">国道${sh.sticker.routeNumber}号</span> ${sh.sticker.name || ''}<br/><span style="display:inline-block;margin-top:2px;font-size:10px;font-weight:600;padding:1px 7px;border-radius:999px;background:${st.bg};color:${st.color};">${st.label}</span>`;
           left.onclick = () => { setSelectedId(sh.sticker.id); onOpenRef.current(sh.sticker); };
           row.appendChild(left);
           content.appendChild(row);
@@ -1413,10 +1450,12 @@ function NationalMapView({ stickers, shops, onOpen }) {
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
           <option value="all">すべて表示</option>
           <option value="acquired">取得済みのみ</option>
+          <option value="visited">訪問のみ</option>
           <option value="pending">未取得のみ</option>
         </select>
-        <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>
+        <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--muted)', marginLeft: 'auto', flexWrap: 'wrap' }}>
           <span><i className="dot" style={{ background: '#0B4EA2' }} /> 取得済み</span>
+          <span><i className="dot" style={{ background: '#8E44AD' }} /> 訪問のみ</span>
           <span><i className="dot" style={{ background: '#B9BDC6' }} /> 未取得</span>
           <span><i className="dot" style={{ background: '#C0392B' }} /> 選択中</span>
           {myPos && <span><i className="dot" style={{ background: '#2E7D32' }} /> 現在地</span>}
@@ -1506,13 +1545,37 @@ function AlbumView({ stickers, shops, onOpen }) {
 /*  訪問予定リスト                                                      */
 /* ------------------------------------------------------------------ */
 
-function VisitPlanView({ stickers, shops, onOpen }) {
+function VisitPlanView({ stickers, shops, onOpen, onToggleWantToVisit, onToggleRevisit }) {
+  const [query, setQuery] = useState('');
+  const [prefFilter, setPrefFilter] = useState('all');
+
   const planned = shops
     .map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) }))
     .filter(sh => sh.wantToVisit && sh.sticker && !sh.sticker.acquired);
   const revisitPlanned = shops
     .map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) }))
     .filter(sh => sh.revisit && sh.sticker);
+
+  const allJoined = useMemo(() =>
+    shops.map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) })).filter(sh => sh.sticker),
+  [shops, stickers]);
+
+  const prefectures = useMemo(() => Array.from(new Set(shops.map(sh => sh.prefecture).filter(Boolean))).sort(), [shops]);
+
+  const searchResults = useMemo(() => {
+    if (!query.trim() && prefFilter === 'all') return [];
+    let list = allJoined;
+    if (query.trim()) {
+      const q = query.trim().toLowerCase();
+      list = list.filter(sh =>
+        String(sh.sticker.routeNumber).includes(q) ||
+        sh.name?.toLowerCase().includes(q) ||
+        sh.prefecture?.toLowerCase().includes(q)
+      );
+    }
+    if (prefFilter !== 'all') list = list.filter(sh => sh.prefecture === prefFilter);
+    return list.slice(0, 50);
+  }, [allJoined, query, prefFilter]);
 
   return (
     <div className="view">
@@ -1524,19 +1587,58 @@ function VisitPlanView({ stickers, shops, onOpen }) {
       </header>
 
       <div className="panel" style={{ padding: 20, marginBottom: 16 }}>
+        <div className="panel-title">販売店を検索して追加</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+          <div className="search-box" style={{ flex: 2, minWidth: 200 }}>
+            <Search size={15} color="var(--muted)" />
+            <input placeholder="国道番号・店舗名で検索" value={query} onChange={e => setQuery(e.target.value)} />
+          </div>
+          <select value={prefFilter} onChange={e => setPrefFilter(e.target.value)} style={{ flex: 1, minWidth: 140 }}>
+            <option value="all">都道府県：すべて</option>
+            {prefectures.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+        {(query.trim() || prefFilter !== 'all') && (
+          <div style={{ marginTop: 10, maxHeight: 280, overflowY: 'auto' }}>
+            {searchResults.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 4px' }}>該当する販売店がありません。</div>}
+            {searchResults.map(sh => (
+              <div key={sh.id} className="row" style={{ padding: '8px 4px' }}>
+                <RouteBadge number={sh.sticker.routeNumber} acquired={sh.sticker.acquired} size={30} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sh.name || '販売店未登録'}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>国道{sh.sticker.routeNumber}号 ・ {sh.prefecture}</div>
+                </div>
+                {sh.sticker.acquired ? (
+                  <button className={`chip-toggle ${sh.revisit ? 'on' : ''}`} onClick={() => onToggleRevisit(sh.id)}>
+                    {sh.revisit ? '再訪問済み✓' : '再訪問予定に追加'}
+                  </button>
+                ) : (
+                  <button className={`chip-toggle ${sh.wantToVisit ? 'on' : ''}`} onClick={() => onToggleWantToVisit(sh.id)}>
+                    {sh.wantToVisit ? '追加済み✓' : '訪問予定に追加'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="panel" style={{ padding: 20, marginBottom: 16 }}>
         <div className="panel-title">行きたい販売店（未取得・訪問予定）</div>
-        {planned.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>訪問予定に登録された販売店はありません。詳細編集画面の販売店ごとに「訪問予定（未訪問）」にチェックを付けると、ここに表示されます。</div>}
+        {planned.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>訪問予定に登録された販売店はありません。上の検索から追加するか、詳細編集画面の販売店ごとに「訪問予定（未訪問）」にチェックを付けると、ここに表示されます。</div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
           {planned.map(sh => (
-            <div key={sh.id} className="row" style={{ padding: '10px 4px', cursor: 'pointer' }} onClick={() => onOpen(sh.sticker)}>
-              <RouteBadge number={sh.sticker.routeNumber} acquired={false} size={34} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 500, fontSize: 14 }}>{sh.sticker.name}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {sh.name || '販売店未登録'}{sh.businessHours ? ` ・ ${sh.businessHours}` : ''}{sh.closedDays ? ` (${sh.closedDays})` : ''}
+            <div key={sh.id} className="row" style={{ padding: '10px 4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => onOpen(sh.sticker)}>
+                <RouteBadge number={sh.sticker.routeNumber} acquired={false} size={34} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, fontSize: 14 }}>{sh.sticker.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    {sh.name || '販売店未登録'}{sh.businessHours ? ` ・ ${sh.businessHours}` : ''}{sh.closedDays ? ` (${sh.closedDays})` : ''}
+                  </div>
                 </div>
               </div>
-              <span className="badge badge-pending">未取得</span>
+              <button className="chip-toggle on" onClick={() => onToggleWantToVisit(sh.id)} title="訪問予定から外す"><X size={12} /> 外す</button>
             </div>
           ))}
         </div>
@@ -1547,13 +1649,16 @@ function VisitPlanView({ stickers, shops, onOpen }) {
         {revisitPlanned.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>再訪問予定はありません。</div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
           {revisitPlanned.map(sh => (
-            <div key={sh.id} className="row" style={{ padding: '10px 4px', cursor: 'pointer' }} onClick={() => onOpen(sh.sticker)}>
-              <RouteBadge number={sh.sticker.routeNumber} acquired={sh.sticker.acquired} size={34} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 500, fontSize: 14 }}>{sh.sticker.name}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{sh.name || '販売店未登録'}</div>
+            <div key={sh.id} className="row" style={{ padding: '10px 4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => onOpen(sh.sticker)}>
+                <RouteBadge number={sh.sticker.routeNumber} acquired={sh.sticker.acquired} size={34} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, fontSize: 14 }}>{sh.sticker.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>{sh.name || '販売店未登録'}</div>
+                </div>
+                <Stars value={sh.sticker.rating} size={13} />
               </div>
-              <Stars value={sh.sticker.rating} size={13} />
+              <button className="chip-toggle on" onClick={() => onToggleRevisit(sh.id)} title="再訪問予定から外す"><X size={12} /> 外す</button>
             </div>
           ))}
         </div>
@@ -1919,6 +2024,8 @@ textarea { resize: vertical; }
 .map-list-item { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--line); }
 .map-list-item:hover { background: #FAFAF8; }
 .map-list-item.active { background: #E4F0FF; }
+.chip-toggle { flex-shrink: 0; font-size: 11px; font-weight: 600; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.chip-toggle.on { background: #0B4EA2; color: #fff; border-color: #0B4EA2; }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; flex-shrink: 0; }
 .map-main { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .leaflet-holder { flex: 1; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); min-height: 260px; }
