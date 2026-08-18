@@ -1298,11 +1298,11 @@ function NationalMapView({ stickers, shops, onOpen }) {
     return list;
   }, [joined, region, prefecture, statusFilter]);
 
-  /* 同じ場所（同じ緯度経度）の販売店を1グループにまとめ、扱っている全ステッカーを保持する */
+  /* 同じ販売店（同じ店名＋都道府県）を1グループにまとめ、扱っている全ステッカーを保持する */
   const grouped = useMemo(() => {
     const map = new Map();
     filtered.forEach(sh => {
-      const key = `${Number(sh.lat).toFixed(5)},${Number(sh.lng).toFixed(5)}`;
+      const key = `${sh.name || '（店名未登録）'}|${sh.prefecture || ''}`;
       if (!map.has(key)) {
         map.set(key, { lat: sh.lat, lng: sh.lng, name: sh.name, prefecture: sh.prefecture, items: [] });
       }
