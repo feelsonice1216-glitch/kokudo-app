@@ -1070,6 +1070,7 @@ function MapView({ stickers, shops, onOpen }) {
   const [embedMode, setEmbedMode] = useState('google');
   const [sortMode, setSortMode] = useState('default');
   const [radius, setRadius] = useState('all');
+  const [highlightKm, setHighlightKm] = useState('10');
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
   const { pos: myPos, error: locError, loading: locLoading, locate } = useMyLocation();
@@ -1119,10 +1120,12 @@ function MapView({ stickers, shops, onOpen }) {
     layerRef.current.clearLayers();
     filtered.forEach(sh => {
       const color = sh.sticker.acquired ? '#0B4EA2' : (sh.sticker.visitedOnly ? '#8E44AD' : '#B9BDC6');
-      const ring = sh.sticker.favorite ? '3px solid #E7A400' : '2px solid #fff';
+      const isNear = myPos && typeof sh._dist === 'number' && sh._dist <= Number(highlightKm);
+      const ring = isNear ? '3px solid #2E9E4F' : (sh.sticker.favorite ? '3px solid #E7A400' : '2px solid #fff');
+      const glow = isNear ? 'box-shadow:0 0 0 4px rgba(46,158,79,0.28), 0 1px 4px rgba(0,0,0,0.35);' : 'box-shadow:0 1px 4px rgba(0,0,0,0.35);';
       const icon = L.divIcon({
         className: '',
-        html: `<div style="width:18px;height:18px;border-radius:50%;background:${color};border:${ring};box-shadow:0 1px 4px rgba(0,0,0,0.35);"></div>`,
+        html: `<div style="width:18px;height:18px;border-radius:50%;background:${color};border:${ring};${glow}"></div>`,
         iconSize: [18, 18], iconAnchor: [9, 9],
       });
       const marker = L.marker([sh.lat, sh.lng], { icon }).addTo(layerRef.current);
@@ -1134,18 +1137,28 @@ function MapView({ stickers, shops, onOpen }) {
       content.style.fontSize = '13px';
       content.innerHTML = `
         <div style="font-weight:600;margin-bottom:2px;">国道${sh.sticker.routeNumber}号 ${sh.sticker.name || ''}</div>
-        <div style="color:#767b85;margin-bottom:6px;">${sh.name || '販売店未登録'}</div>
+        <div style="color:#767b85;margin-bottom:6px;">${sh.name || '販売店未登録'}${typeof sh._dist === 'number' ? ` ・ 現在地から約${sh._dist.toFixed(1)}km` : ''}</div>
         <div style="display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:${statusBg};color:${statusColor};">${statusLabel}</div>
       `;
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
       const btn = document.createElement('button');
       btn.textContent = '詳細を開く';
-      btn.style.cssText = 'margin-top:8px;display:block;width:100%;padding:6px 10px;border:none;border-radius:6px;background:#0B4EA2;color:#fff;font-size:12px;font-weight:600;cursor:pointer;';
+      btn.style.cssText = 'flex:1;padding:6px 10px;border:none;border-radius:6px;background:#0B4EA2;color:#fff;font-size:12px;font-weight:600;cursor:pointer;';
       btn.onclick = () => onOpenRef.current(sh.sticker);
-      content.appendChild(btn);
+      btnRow.appendChild(btn);
+      if (sh.mapUrl) {
+        const gbtn = document.createElement('button');
+        gbtn.textContent = 'Googleマップで開く';
+        gbtn.style.cssText = 'flex:1;padding:6px 10px;border:1px solid #0B4EA2;border-radius:6px;background:#fff;color:#0B4EA2;font-size:12px;font-weight:600;cursor:pointer;';
+        gbtn.onclick = () => window.open(sh.mapUrl, '_blank');
+        btnRow.appendChild(gbtn);
+      }
+      content.appendChild(btnRow);
       marker.bindPopup(content);
       marker.on('click', () => setSelectedId(sh.id));
     });
-  }, [filtered, leafletReady]);
+  }, [filtered, leafletReady, myPos, highlightKm]);
 
   useEffect(() => {
     if (!leafletReady || !mapObjRef.current || !myPos) return;
@@ -1194,24 +1207,37 @@ function MapView({ stickers, shops, onOpen }) {
               <option value="favorite">お気に入りのみ</option>
             </select>
             {myPos && (
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                 <select value={sortMode} onChange={e => setSortMode(e.target.value)} style={{ flex: 1 }}>
                   <option value="default">並び順：通常</option>
                   <option value="distance">並び順：現在地から近い順</option>
                 </select>
                 <select value={radius} onChange={e => setRadius(e.target.value)} style={{ flex: 1 }}>
-                  <option value="all">距離：すべて</option>
+                  <option value="all">絞り込み：すべて</option>
+                  <option value="10">10km以内のみ</option>
+                  <option value="30">30km以内のみ</option>
+                  <option value="50">50km以内のみ</option>
+                </select>
+              </div>
+            )}
+            {myPos && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>近くを強調表示：</span>
+                <select value={highlightKm} onChange={e => setHighlightKm(e.target.value)} style={{ flex: 1 }}>
+                  <option value="5">5km以内</option>
                   <option value="10">10km以内</option>
+                  <option value="20">20km以内</option>
                   <option value="30">30km以内</option>
                   <option value="50">50km以内</option>
                 </select>
               </div>
             )}
-            <div style={{ display: 'flex', gap: 12, marginTop: 10, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 12, marginTop: 2, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
               <span><i className="dot" style={{ background: '#0B4EA2' }} /> 取得済み</span>
               <span><i className="dot" style={{ background: '#8E44AD' }} /> 訪問のみ</span>
               <span><i className="dot" style={{ background: '#B9BDC6' }} /> 未取得</span>
               {myPos && <span><i className="dot" style={{ background: '#2E7D32' }} /> 現在地</span>}
+              {myPos && <span><i className="dot" style={{ background: '#fff', border: '2px solid #2E9E4F' }} /> 近くの店舗</span>}
             </div>
           </div>
           <div style={{ overflowY: 'auto', flex: 1 }}>
@@ -1282,6 +1308,7 @@ function NationalMapView({ stickers, shops, onOpen }) {
   const [prefecture, setPrefecture] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedId, setSelectedId] = useState(null);
+  const [highlightKm, setHighlightKm] = useState('10');
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
   const { pos: myPos, error: locError, loading: locLoading, locate } = useMyLocation();
@@ -1322,12 +1349,16 @@ function NationalMapView({ stickers, shops, onOpen }) {
     filtered.forEach(sh => {
       const key = `${sh.name || '（店名未登録）'}|${sh.prefecture || ''}`;
       if (!map.has(key)) {
-        map.set(key, { lat: sh.lat, lng: sh.lng, name: sh.name, prefecture: sh.prefecture, items: [] });
+        map.set(key, { lat: sh.lat, lng: sh.lng, name: sh.name, prefecture: sh.prefecture, mapUrl: sh.mapUrl, items: [] });
       }
       map.get(key).items.push(sh);
     });
-    return Array.from(map.values());
-  }, [filtered]);
+    const list = Array.from(map.values());
+    if (myPos) {
+      list.forEach(g => { g.dist = distanceKm(myPos.lat, myPos.lng, g.lat, g.lng); });
+    }
+    return list;
+  }, [filtered, myPos]);
 
   useEffect(() => {
     if (!leafletReady || !mapDivRef.current || mapObjRef.current) return;
@@ -1352,17 +1383,19 @@ function NationalMapView({ stickers, shops, onOpen }) {
       const allAcquired = items.every(sh => sh.sticker.acquired);
       const anyVisitedOnly = items.some(sh => sh.sticker.visitedOnly && !sh.sticker.acquired);
       const fill = isSelected ? '#C0392B' : (allAcquired ? '#0B4EA2' : (anyAcquired ? '#5B8FD1' : (anyVisitedOnly ? '#8E44AD' : '#B9BDC6')));
-      const size = isSelected ? 36 : 30;
+      const isNear = myPos && typeof group.dist === 'number' && group.dist <= Number(highlightKm);
+      const size = (isSelected ? 36 : 30) + (isNear ? 4 : 0);
 
       let icon;
+      const nearGlow = isNear ? 'filter:drop-shadow(0 0 0 3px #2E9E4F) drop-shadow(0 1px 3px rgba(0,0,0,0.4));' : 'filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));';
       if (isMulti) {
         /* 複数路線を扱う場所：おにぎり型ではなく丸いピンにして、件数バッジを右上に添える（国道番号と混同しないデザイン） */
         const d = size;
         icon = L.divIcon({
           className: '',
           html: `<div style="position:relative;width:${d}px;height:${d}px;">
-                   <svg width="${d}" height="${d}" viewBox="0 0 100 100" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));">
-                     <circle cx="50" cy="50" r="46" fill="#fff" />
+                   <svg width="${d}" height="${d}" viewBox="0 0 100 100" style="${nearGlow}">
+                     <circle cx="50" cy="50" r="46" fill="${isNear ? '#2E9E4F' : '#fff'}" />
                      <circle cx="50" cy="50" r="39" fill="${fill}" />
                      <text x="50" y="60" text-anchor="middle" font-family="'Noto Sans JP',sans-serif" font-weight="700" font-size="30" fill="#fff">店</text>
                    </svg>
@@ -1376,8 +1409,8 @@ function NationalMapView({ stickers, shops, onOpen }) {
         const innerPath = 'M32,10 L68,10 C80,10 90,19 90,33 C90,50 85,60 75,70 L52,95 C51,97 49,97 48,95 L25,70 C15,60 10,50 10,33 C10,19 20,10 32,10 Z';
         icon = L.divIcon({
           className: '',
-          html: `<svg width="${size}" height="${h}" viewBox="0 0 100 110" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));">
-                   <path d="${outerPath}" fill="#fff" />
+          html: `<svg width="${size}" height="${h}" viewBox="0 0 100 110" style="${nearGlow}">
+                   <path d="${outerPath}" fill="${isNear ? '#2E9E4F' : '#fff'}" />
                    <path d="${innerPath}" fill="${fill}" />
                    <text x="34" y="30" text-anchor="middle" font-family="'Noto Sans JP',sans-serif" font-weight="700" font-size="13" fill="#fff">国</text>
                    <text x="66" y="30" text-anchor="middle" font-family="'Noto Sans JP',sans-serif" font-weight="700" font-size="13" fill="#fff">道</text>
@@ -1391,7 +1424,7 @@ function NationalMapView({ stickers, shops, onOpen }) {
       const content = document.createElement('div');
       content.style.fontFamily = "'Noto Sans JP', sans-serif";
       content.style.fontSize = '13px';
-      content.style.maxHeight = '260px';
+      content.style.maxHeight = '300px';
       content.style.overflowY = 'auto';
       content.style.minWidth = '200px';
       const header = document.createElement('div');
@@ -1399,9 +1432,16 @@ function NationalMapView({ stickers, shops, onOpen }) {
       header.textContent = group.name || '販売店未登録';
       const sub = document.createElement('div');
       sub.style.cssText = 'color:#767b85;margin-bottom:8px;';
-      sub.textContent = `${group.prefecture || ''}${isMulti ? ` ・ 取扱${items.length}路線` : ''}`;
+      sub.textContent = `${group.prefecture || ''}${isMulti ? ` ・ 取扱${items.length}路線` : ''}${typeof group.dist === 'number' ? ` ・ 現在地から約${group.dist.toFixed(1)}km` : ''}`;
       content.appendChild(header);
       content.appendChild(sub);
+      if (group.mapUrl) {
+        const gbtn = document.createElement('button');
+        gbtn.textContent = 'Googleマップで開く';
+        gbtn.style.cssText = 'width:100%;margin-bottom:8px;padding:6px 10px;border:1px solid #0B4EA2;border-radius:6px;background:#fff;color:#0B4EA2;font-size:12px;font-weight:600;cursor:pointer;';
+        gbtn.onclick = () => window.open(group.mapUrl, '_blank');
+        content.appendChild(gbtn);
+      }
       items
         .slice()
         .sort((a, b) => a.sticker.routeNumber - b.sticker.routeNumber)
@@ -1421,7 +1461,7 @@ function NationalMapView({ stickers, shops, onOpen }) {
       marker.on('click', () => setSelectedId(items[0].sticker.id));
       marker.bindPopup(content);
     });
-  }, [grouped, leafletReady, selectedId]);
+  }, [grouped, leafletReady, selectedId, myPos, highlightKm]);
 
   const acquiredCount = new Set(filtered.filter(sh => sh.sticker.acquired).map(sh => sh.sticker.id)).size;
 
@@ -1453,12 +1493,22 @@ function NationalMapView({ stickers, shops, onOpen }) {
           <option value="visited">訪問のみ</option>
           <option value="pending">未取得のみ</option>
         </select>
+        {myPos && (
+          <select value={highlightKm} onChange={e => setHighlightKm(e.target.value)}>
+            <option value="5">現在地から5km以内を強調</option>
+            <option value="10">現在地から10km以内を強調</option>
+            <option value="20">現在地から20km以内を強調</option>
+            <option value="30">現在地から30km以内を強調</option>
+            <option value="50">現在地から50km以内を強調</option>
+          </select>
+        )}
         <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--muted)', marginLeft: 'auto', flexWrap: 'wrap' }}>
           <span><i className="dot" style={{ background: '#0B4EA2' }} /> 取得済み</span>
           <span><i className="dot" style={{ background: '#8E44AD' }} /> 訪問のみ</span>
           <span><i className="dot" style={{ background: '#B9BDC6' }} /> 未取得</span>
           <span><i className="dot" style={{ background: '#C0392B' }} /> 選択中</span>
           {myPos && <span><i className="dot" style={{ background: '#2E7D32' }} /> 現在地</span>}
+          {myPos && <span><i className="dot" style={{ background: '#fff', border: '2px solid #2E9E4F' }} /> 近くの店舗</span>}
         </div>
       </div>
 
