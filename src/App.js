@@ -461,6 +461,8 @@ export default function App() {
   const [shops, setShops] = useState([]);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState('home');
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('kokudo-dark-mode') === 'true');
+  useEffect(() => { localStorage.setItem('kokudo-dark-mode', String(darkMode)); }, [darkMode]);
   const [layout, setLayout] = useState('grid');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
@@ -628,8 +630,16 @@ export default function App() {
     setShops(prev => prev.map(sh => sh.id === shopId ? { ...sh, revisit: !sh.revisit } : sh));
   };
 
-  const exportJSON = () => { download('kokudo-stickers.json', JSON.stringify({ stickers, shops }, null, 2)); showToast('JSONを書き出しました'); };
-  const exportCSV = () => { download('kokudo-stickers.csv', toCSV(toCSVRows(stickers, shops))); showToast('CSVを書き出しました'); };
+  const exportJSON = () => {
+    download('kokudo-stickers.json', JSON.stringify({ stickers, shops }, null, 2));
+    localStorage.setItem('kokudo-last-export', new Date().toISOString());
+    showToast('JSONを書き出しました');
+  };
+  const exportCSV = () => {
+    download('kokudo-stickers.csv', toCSV(toCSVRows(stickers, shops)));
+    localStorage.setItem('kokudo-last-export', new Date().toISOString());
+    showToast('CSVを書き出しました');
+  };
 
   const importCSVText = (text) => {
     const lines = text.split('\n').filter(Boolean);
@@ -758,7 +768,7 @@ export default function App() {
   if (!ready) return <div style={{ padding: 40, color: 'var(--muted)' }}>読み込み中…</div>;
 
   return (
-    <div className="app-root">
+    <div className={`app-root${darkMode ? ' dark' : ''}`}>
       <style>{CSS}</style>
 
       <nav className="sidenav">
@@ -803,6 +813,7 @@ export default function App() {
             onExportJSON={exportJSON} onExportCSV={exportCSV} onImport={importFile}
             onMergeMaster={mergeMasterData} onReset={resetData} onResetAcquisitions={resetAcquisitions}
             count={stickers.length} onInstall={requestInstall} canInstall={!!installPrompt}
+            darkMode={darkMode} onToggleDarkMode={() => setDarkMode(v => !v)}
           />
         )}
       </main>
@@ -831,6 +842,26 @@ function NavBtn({ icon, label, active, onClick }) {
 /*  ホーム / ダッシュボード                                              */
 /* ------------------------------------------------------------------ */
 
+function BackupReminder() {
+  const [daysSince, setDaysSince] = useState(null);
+  useEffect(() => {
+    const last = localStorage.getItem('kokudo-last-export');
+    if (!last) { setDaysSince(Infinity); return; }
+    const diff = (Date.now() - new Date(last).getTime()) / (1000 * 60 * 60 * 24);
+    setDaysSince(Math.floor(diff));
+  }, []);
+  if (daysSince === null || daysSince < 30) return null;
+  return (
+    <div className="panel" style={{ padding: 16, marginBottom: 16, border: '1px solid #E7A400', background: '#FFF8E8', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <Bell size={16} color="#8a6400" />
+      <div style={{ fontSize: 13, color: '#8a6400' }}>
+        {daysSince === Infinity ? 'まだデータのバックアップ（書き出し）をしたことがありません。' : `最後のバックアップから${daysSince}日経っています。`}
+        機種変更やブラウザのデータ消去で記録が失われる前に、「設定・バックアップ」からJSONを書き出しておくのがおすすめです。
+      </div>
+    </div>
+  );
+}
+
 function HomeView({ stats, onGoList, onAdd }) {
   return (
     <div className="view">
@@ -841,6 +872,8 @@ function HomeView({ stats, onGoList, onAdd }) {
         </div>
         <button className="btn-primary" onClick={onAdd}><Plus size={16} /> ステッカーを登録</button>
       </header>
+
+      <BackupReminder />
 
       <div className="hero panel">
         <div className="hero-ring">
@@ -1747,6 +1780,13 @@ function StatsView({ stats, stickers, shops }) {
 
   const regionCompletion = useMemo(() => stats.byRegion.map(r => ({ ...r, complete: r.total > 0 && r.acquired === r.total })), [stats.byRegion]);
 
+  const remainingRanking = useMemo(() =>
+    prefCompletion
+      .map(p => ({ ...p, remaining: p.total - p.acquired }))
+      .filter(p => p.remaining > 0)
+      .sort((a, b) => a.remaining - b.remaining || a.name.localeCompare(b.name, 'ja')),
+  [prefCompletion]);
+
   const almostThere = useMemo(() => {
     const prefAlmost = prefCompletion.filter(p => !p.complete && p.total - p.acquired === 1).map(p => ({ ...p, kind: '都道府県' }));
     const regionAlmost = regionCompletion.filter(r => !r.complete && r.total - r.acquired === 1).map(r => ({ ...r, kind: '地域' }));
@@ -1854,6 +1894,26 @@ function StatsView({ stats, stickers, shops }) {
       </div>
 
       <div className="panel" style={{ padding: 20, marginTop: 16 }}>
+        <div className="panel-title">都道府県別 残り枚数ランキング</div>
+        {remainingRanking.length === 0 ? (
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>すべての都道府県でコンプリートしています！</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+            {remainingRanking.map((p, i) => (
+              <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                <span style={{ width: 22, color: 'var(--muted)', fontWeight: 600 }}>{i + 1}</span>
+                <span style={{ width: 70, fontWeight: 500 }}>{p.name}</span>
+                <div style={{ flex: 1, height: 8, borderRadius: 999, background: '#EEEEEA', overflow: 'hidden' }}>
+                  <div style={{ width: `${(p.acquired / p.total) * 100}%`, height: '100%', background: '#0B4EA2' }} />
+                </div>
+                <span style={{ width: 90, textAlign: 'right', color: 'var(--muted)', fontSize: 12 }}>残り{p.remaining}枚（{p.acquired}/{p.total}）</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="panel" style={{ padding: 20, marginTop: 16 }}>
         <div className="panel-title">都道府県・地域コンプリートバッジ</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
           {regionCompletion.map(r => (
@@ -1898,7 +1958,7 @@ function StatsView({ stats, stickers, shops }) {
 /*  設定・バックアップ                                                    */
 /* ------------------------------------------------------------------ */
 
-function SettingsView({ onExportJSON, onExportCSV, onImport, onMergeMaster, onReset, onResetAcquisitions, count, onInstall, canInstall }) {
+function SettingsView({ onExportJSON, onExportCSV, onImport, onMergeMaster, onReset, onResetAcquisitions, count, onInstall, canInstall, darkMode, onToggleDarkMode }) {
   return (
     <div className="view">
       <header className="view-header">
@@ -1914,6 +1974,14 @@ function SettingsView({ onExportJSON, onExportCSV, onImport, onMergeMaster, onRe
           {canInstall ? 'お使いの端末はインストールに対応しています。' : '実際にご自身のドメインへデプロイした後、対応ブラウザでこのボタンからホーム画面に追加できます。'}
         </p>
         <button className="btn-secondary" onClick={onInstall}><Download size={15} /> ホーム画面に追加</button>
+      </div>
+
+      <div className="panel" style={{ padding: 20, marginBottom: 16 }}>
+        <div className="panel-title">表示テーマ</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)' }}>ダークモードのオン・オフを切り替えます。設定はこの端末に保存されます。</p>
+        <button className="btn-secondary" onClick={onToggleDarkMode}>
+          {darkMode ? '☀️ ライトモードに切り替え' : '🌙 ダークモードに切り替え'}
+        </button>
       </div>
 
       <div className="panel" style={{ padding: 20, marginBottom: 16 }}>
@@ -1991,6 +2059,19 @@ const CSS = `
 }
 
 .app-root * { box-sizing: border-box; }
+
+.app-root.dark {
+  --paper: #14171C;
+  --panel: #1D2128;
+  --ink: #EDEFF2;
+  --muted: #9AA0AC;
+  --line: #303640;
+  --pending: #4A505B;
+}
+.app-root.dark .btn-secondary { background: var(--panel); color: var(--ink); border-color: var(--line); }
+.app-root.dark input, .app-root.dark select, .app-root.dark textarea { background: var(--panel); color: var(--ink); border-color: var(--line); }
+.app-root.dark .panel { background: var(--panel); }
+.app-root.dark .complete-badge { background: #262B33; }
 
 .sidenav {
   width: 220px; flex-shrink: 0; background: var(--panel);
