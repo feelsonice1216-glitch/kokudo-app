@@ -17,7 +17,42 @@ const STORAGE_KEY = 'kokudo-data-v2';
 const REGIONS = ['北海道', '東北', '関東', '中部', '近畿', '中国', '四国', '九州・沖縄'];
 const METHODS = ['現地購入', 'オンライン', 'フリマアプリ', '頂き物', 'その他'];
 
+/* 都道府県庁所在地のおおよその座標（地図の初期表示位置に使用） */
+const PREF_COORDS = {
+  '北海道': [43.0642, 141.3469], '青森県': [40.8244, 140.7400], '岩手県': [39.7036, 141.1527],
+  '宮城県': [38.2688, 140.8721], '秋田県': [39.7186, 140.1024], '山形県': [38.2404, 140.3633],
+  '福島県': [37.7503, 140.4676], '茨城県': [36.3418, 140.4468], '栃木県': [36.5658, 139.8836],
+  '群馬県': [36.3911, 139.0608], '埼玉県': [35.8569, 139.6489], '千葉県': [35.6047, 140.1233],
+  '東京都': [35.6762, 139.6503], '神奈川県': [35.4478, 139.6425], '新潟県': [37.9026, 139.0236],
+  '富山県': [36.6953, 137.2113], '石川県': [36.5947, 136.6256], '福井県': [36.0652, 136.2216],
+  '山梨県': [35.6642, 138.5684], '長野県': [36.6513, 138.1810], '岐阜県': [35.3912, 136.7223],
+  '静岡県': [34.9769, 138.3831], '愛知県': [35.1802, 136.9066], '三重県': [34.7303, 136.5086],
+  '滋賀県': [35.0045, 135.8686], '京都府': [35.0212, 135.7556], '大阪府': [34.6863, 135.5200],
+  '兵庫県': [34.6913, 135.1830], '奈良県': [34.6851, 135.8330], '和歌山県': [34.2261, 135.1675],
+  '鳥取県': [35.5039, 134.2378], '島根県': [35.4723, 133.0505], '岡山県': [34.6618, 133.9350],
+  '広島県': [34.3966, 132.4596], '山口県': [34.1859, 131.4714], '徳島県': [34.0658, 134.5593],
+  '香川県': [34.3401, 134.0434], '愛媛県': [33.8417, 132.7660], '高知県': [33.5597, 133.5311],
+  '福岡県': [33.6064, 130.4183], '佐賀県': [33.2494, 130.2989], '長崎県': [32.7448, 129.8737],
+  '熊本県': [32.7898, 130.7417], '大分県': [33.2382, 131.6126], '宮崎県': [31.9111, 131.4239],
+  '鹿児島県': [31.5602, 130.5581], '沖縄県': [26.2124, 127.6809],
+};
+
 const uid = () => Math.random().toString(36).slice(2, 10);
+
+/* 端末に保存する表示・動作設定 */
+function usePref(key, defaultValue) {
+  const storageKey = 'kokudo-pref-' + key;
+  const [val, setVal] = useState(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw !== null ? JSON.parse(raw) : defaultValue;
+    } catch { return defaultValue; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, JSON.stringify(val)); } catch {}
+  }, [storageKey, val]);
+  return [val, setVal];
+}
 
 /* 2点間の距離(km)をハヴァサイン公式で計算 */
 function distanceKm(lat1, lng1, lat2, lng2) {
@@ -463,10 +498,26 @@ export default function App() {
   const [view, setView] = useState('home');
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('kokudo-dark-mode') === 'true');
   useEffect(() => { localStorage.setItem('kokudo-dark-mode', String(darkMode)); }, [darkMode]);
-  const [layout, setLayout] = useState('grid');
+
+  /* 表示・動作設定（表示・動作設定パネルで変更、この端末に保存） */
+  const [sortDefaultPref, setSortDefaultPref] = usePref('sortDefault', 'route-asc');
+  const [layoutDefaultPref, setLayoutDefaultPref] = usePref('layoutDefault', 'grid');
+  const [cardSizePref, setCardSizePref] = usePref('cardSize', 'comfortable');
+  const [pageSizePref, setPageSizePref] = usePref('pageSize', '50');
+  const [reminderDaysPref, setReminderDaysPref] = usePref('reminderDays', 30);
+  const [almostEnabledPref, setAlmostEnabledPref] = usePref('almostEnabled', true);
+  const [visitSortPref, setVisitSortPref] = usePref('visitSort', 'registered');
+  const [requireTypedConfirmPref, setRequireTypedConfirmPref] = usePref('requireTypedConfirm', false);
+  const [themeColorPref, setThemeColorPref] = usePref('themeColor', '#0B4EA2');
+  const [fontSizePref, setFontSizePref] = usePref('fontSize', 'normal');
+  const [mapStylePref, setMapStylePref] = usePref('mapStyle', 'standard');
+  const [mapHomePrefPref, setMapHomePrefPref] = usePref('mapHomePref', '');
+  const [chartTypePref, setChartTypePref] = usePref('chartType', 'pie');
+
+  const [layout, setLayout] = useState(layoutDefaultPref);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
-  const [sort, setSort] = useState('route-asc');
+  const [sort, setSort] = useState(sortDefaultPref);
   const [editing, setEditing] = useState(null); // { sticker, shops } | null
   const [toast, setToast] = useState('');
   const [isOffline, setIsOffline] = useState(typeof navigator !== 'undefined' && !navigator.onLine);
@@ -631,12 +682,12 @@ export default function App() {
   };
 
   const exportJSON = () => {
-    download('kokudo-stickers.json', JSON.stringify({ stickers, shops }, null, 2));
+    download(`kokudo-stickers-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ stickers, shops }, null, 2));
     localStorage.setItem('kokudo-last-export', new Date().toISOString());
     showToast('JSONを書き出しました');
   };
   const exportCSV = () => {
-    download('kokudo-stickers.csv', toCSV(toCSVRows(stickers, shops)));
+    download(`kokudo-stickers-${new Date().toISOString().slice(0, 10)}.csv`, toCSV(toCSVRows(stickers, shops)));
     localStorage.setItem('kokudo-last-export', new Date().toISOString());
     showToast('CSVを書き出しました');
   };
@@ -747,11 +798,15 @@ export default function App() {
   };
 
   const resetData = () => {
-    if (confirm('すべてのデータを削除しますか？この操作は取り消せません。')) {
-      setStickers([]);
-      setShops([]);
-      showToast('データを初期化しました');
+    if (requireTypedConfirmPref) {
+      const typed = prompt('本当にすべてのデータを削除します。元に戻せません。\n続けるには「削除する」と入力してください。');
+      if (typed !== '削除する') { if (typed !== null) showToast('入力が一致しなかったため中止しました'); return; }
+    } else if (!confirm('すべてのデータを削除しますか？この操作は取り消せません。')) {
+      return;
     }
+    setStickers([]);
+    setShops([]);
+    showToast('データを初期化しました');
   };
 
   const resetAcquisitions = () => {
@@ -768,7 +823,7 @@ export default function App() {
   if (!ready) return <div style={{ padding: 40, color: 'var(--muted)' }}>読み込み中…</div>;
 
   return (
-    <div className={`app-root${darkMode ? ' dark' : ''}`}>
+    <div className={`app-root${darkMode ? ' dark' : ''}${fontSizePref === 'large' ? ' font-large' : ''}`} style={{ '--primary': themeColorPref }}>
       <style>{CSS}</style>
 
       <nav className="sidenav">
@@ -793,27 +848,39 @@ export default function App() {
         {isOffline && <div className="offline-banner">オフラインです。一部の機能が制限される場合があります。</div>}
 
         {view === 'home' && (
-          <HomeView stats={stats} onGoList={() => setView('list')} onAdd={openNew} />
+          <HomeView stats={stats} onGoList={() => setView('list')} onAdd={openNew} reminderDays={reminderDaysPref} />
         )}
         {view === 'list' && (
           <ListView
             filtered={filtered} layout={layout} setLayout={setLayout}
             query={query} setQuery={setQuery} filter={filter} setFilter={setFilter}
-            sort={sort} setSort={setSort}
+            sort={sort} setSort={setSort} pageSizePref={pageSizePref} cardSizePref={cardSizePref}
             onOpen={openEditor} onAdd={openNew} onToggleFav={toggleFavorite} onToggleAcquired={toggleAcquired}
           />
         )}
-        {view === 'map' && <MapView stickers={stickers} shops={shops} onOpen={openEditor} />}
-        {view === 'nationalmap' && <NationalMapView stickers={stickers} shops={shops} onOpen={openEditor} />}
-        {view === 'visitplan' && <VisitPlanView stickers={stickers} shops={shops} onOpen={openEditor} onToggleWantToVisit={toggleWantToVisit} onToggleRevisit={toggleRevisit} />}
+        {view === 'map' && <MapView stickers={stickers} shops={shops} onOpen={openEditor} mapStylePref={mapStylePref} mapHomePref={mapHomePrefPref} />}
+        {view === 'nationalmap' && <NationalMapView stickers={stickers} shops={shops} onOpen={openEditor} mapStylePref={mapStylePref} mapHomePref={mapHomePrefPref} />}
+        {view === 'visitplan' && <VisitPlanView stickers={stickers} shops={shops} onOpen={openEditor} onToggleWantToVisit={toggleWantToVisit} onToggleRevisit={toggleRevisit} visitSortPref={visitSortPref} setVisitSortPref={setVisitSortPref} />}
         {view === 'album' && <AlbumView stickers={stickers} shops={shops} onOpen={openEditor} />}
-        {view === 'stats' && <StatsView stats={stats} stickers={stickers} shops={shops} />}
+        {view === 'stats' && <StatsView stats={stats} stickers={stickers} shops={shops} almostEnabled={almostEnabledPref} chartTypePref={chartTypePref} />}
         {view === 'settings' && (
           <SettingsView
             onExportJSON={exportJSON} onExportCSV={exportCSV} onImport={importFile}
             onMergeMaster={mergeMasterData} onReset={resetData} onResetAcquisitions={resetAcquisitions}
             count={stickers.length} onInstall={requestInstall} canInstall={!!installPrompt}
             darkMode={darkMode} onToggleDarkMode={() => setDarkMode(v => !v)}
+            sortDefaultPref={sortDefaultPref} setSortDefaultPref={setSortDefaultPref}
+            layoutDefaultPref={layoutDefaultPref} setLayoutDefaultPref={setLayoutDefaultPref}
+            cardSizePref={cardSizePref} setCardSizePref={setCardSizePref}
+            pageSizePref={pageSizePref} setPageSizePref={setPageSizePref}
+            reminderDaysPref={reminderDaysPref} setReminderDaysPref={setReminderDaysPref}
+            almostEnabledPref={almostEnabledPref} setAlmostEnabledPref={setAlmostEnabledPref}
+            requireTypedConfirmPref={requireTypedConfirmPref} setRequireTypedConfirmPref={setRequireTypedConfirmPref}
+            themeColorPref={themeColorPref} setThemeColorPref={setThemeColorPref}
+            fontSizePref={fontSizePref} setFontSizePref={setFontSizePref}
+            mapStylePref={mapStylePref} setMapStylePref={setMapStylePref}
+            mapHomePrefPref={mapHomePrefPref} setMapHomePrefPref={setMapHomePrefPref}
+            chartTypePref={chartTypePref} setChartTypePref={setChartTypePref}
           />
         )}
       </main>
@@ -842,7 +909,7 @@ function NavBtn({ icon, label, active, onClick }) {
 /*  ホーム / ダッシュボード                                              */
 /* ------------------------------------------------------------------ */
 
-function BackupReminder() {
+function BackupReminder({ reminderDays }) {
   const [daysSince, setDaysSince] = useState(null);
   useEffect(() => {
     const last = localStorage.getItem('kokudo-last-export');
@@ -850,7 +917,7 @@ function BackupReminder() {
     const diff = (Date.now() - new Date(last).getTime()) / (1000 * 60 * 60 * 24);
     setDaysSince(Math.floor(diff));
   }, []);
-  if (daysSince === null || daysSince < 30) return null;
+  if (daysSince === null || daysSince < reminderDays) return null;
   return (
     <div className="panel" style={{ padding: 16, marginBottom: 16, border: '1px solid #E7A400', background: '#FFF8E8', display: 'flex', alignItems: 'center', gap: 10 }}>
       <Bell size={16} color="#8a6400" />
@@ -862,7 +929,7 @@ function BackupReminder() {
   );
 }
 
-function HomeView({ stats, onGoList, onAdd }) {
+function HomeView({ stats, onGoList, onAdd, reminderDays }) {
   return (
     <div className="view">
       <header className="view-header">
@@ -873,7 +940,7 @@ function HomeView({ stats, onGoList, onAdd }) {
         <button className="btn-primary" onClick={onAdd}><Plus size={16} /> ステッカーを登録</button>
       </header>
 
-      <BackupReminder />
+      <BackupReminder reminderDays={reminderDays} />
 
       <div className="hero panel">
         <div className="hero-ring">
@@ -932,7 +999,11 @@ function HomeView({ stats, onGoList, onAdd }) {
 /*  一覧                                                                */
 /* ------------------------------------------------------------------ */
 
-function ListView({ filtered, layout, setLayout, query, setQuery, filter, setFilter, sort, setSort, onOpen, onAdd, onToggleFav, onToggleAcquired }) {
+function ListView({ filtered, layout, setLayout, query, setQuery, filter, setFilter, sort, setSort, pageSizePref, cardSizePref, onOpen, onAdd, onToggleFav, onToggleAcquired }) {
+  const [shownCount, setShownCount] = useState(pageSizePref === 'all' ? Infinity : Number(pageSizePref));
+  useEffect(() => { setShownCount(pageSizePref === 'all' ? Infinity : Number(pageSizePref)); }, [pageSizePref, query, filter, sort]);
+  const visible = filtered.slice(0, shownCount);
+  const compact = cardSizePref === 'compact';
   return (
     <div className="view">
       <header className="view-header">
@@ -970,33 +1041,35 @@ function ListView({ filtered, layout, setLayout, query, setQuery, filter, setFil
         </div>
       </div>
 
-      <div style={{ fontSize: 12, color: 'var(--muted)', margin: '10px 2px' }}>{filtered.length} 件表示中</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', margin: '10px 2px' }}>{filtered.length} 件中 {visible.length} 件表示中</div>
 
       {layout === 'grid' ? (
         <div className="grid">
-          {filtered.map(s => {
+          {visible.map(s => {
             const primaryShop = s.acquired ? (s.shopsList.find(sh => sh.id === s.acquiredShopId) || s.shopsList[0]) : s.shopsList[0];
             const extraCount = s.shopsList.length - 1;
             return (
-              <div key={s.id} className="card" onClick={() => onOpen(s)}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  <RouteBadge number={s.routeNumber} acquired={s.acquired} />
+              <div key={s.id} className={`card ${compact ? 'card-compact' : ''}`} onClick={() => onOpen(s)}>
+                <div style={{ display: 'flex', gap: compact ? 8 : 12, alignItems: 'center' }}>
+                  <RouteBadge number={s.routeNumber} acquired={s.acquired} size={compact ? 28 : undefined} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{s.region}</div>
+                    <div style={{ fontWeight: 600, fontSize: compact ? 13 : 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
+                    {!compact && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{s.region}</div>}
                   </div>
                   <button className="icon-btn" onClick={e => { e.stopPropagation(); onToggleFav(s.id); }}>
-                    <Star size={16} fill={s.favorite ? 'var(--warm)' : 'none'} color={s.favorite ? 'var(--warm)' : 'var(--muted)'} />
+                    <Star size={compact ? 14 : 16} fill={s.favorite ? 'var(--warm)' : 'none'} color={s.favorite ? 'var(--warm)' : 'var(--muted)'} />
                   </button>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Store size={12} /> {primaryShop?.name || '販売店未登録'}{extraCount > 0 && <span className="shop-count-badge">他{extraCount}店舗</span>}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                {!compact && (
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Store size={12} /> {primaryShop?.name || '販売店未登録'}{extraCount > 0 && <span className="shop-count-badge">他{extraCount}店舗</span>}
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: compact ? 6 : 10 }}>
                   <span
                     className={`badge badge-tap ${s.acquired ? 'badge-ok' : 'badge-pending'}`}
                     onClick={e => { e.stopPropagation(); onToggleAcquired(s.id); }}
-                  >{s.acquired ? '✓ 取得済み' : '未取得（タップで取得）'}</span>
+                  >{s.acquired ? '✓ 取得済み' : (compact ? '未取得' : '未取得（タップで取得）')}</span>
                   <Stars value={s.rating} size={13} />
                 </div>
               </div>
@@ -1005,7 +1078,7 @@ function ListView({ filtered, layout, setLayout, query, setQuery, filter, setFil
         </div>
       ) : (
         <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
-          {filtered.map((s, i) => {
+          {visible.map((s, i) => {
             const primaryShop = s.acquired ? (s.shopsList.find(sh => sh.id === s.acquiredShopId) || s.shopsList[0]) : s.shopsList[0];
             const extraCount = s.shopsList.length - 1;
             return (
@@ -1029,6 +1102,12 @@ function ListView({ filtered, layout, setLayout, query, setQuery, filter, setFil
             );
           })}
         </div>
+      )}
+
+      {shownCount < filtered.length && (
+        <button className="btn-secondary" style={{ display: 'block', margin: '16px auto 0' }} onClick={() => setShownCount(c => c + (pageSizePref === 'all' ? Infinity : Number(pageSizePref)))}>
+          もっと見る（残り{filtered.length - shownCount}件）
+        </button>
       )}
     </div>
   );
@@ -1091,7 +1170,7 @@ function useLeaflet() {
   return ready;
 }
 
-function MapView({ stickers, shops, onOpen }) {
+function MapView({ stickers, shops, onOpen, mapStylePref, mapHomePref }) {
   const leafletReady = useLeaflet();
   const mapDivRef = useRef(null);
   const mapObjRef = useRef(null);
@@ -1139,10 +1218,16 @@ function MapView({ stickers, shops, onOpen }) {
   useEffect(() => {
     if (!leafletReady || !mapDivRef.current || mapObjRef.current) return;
     const L = window.L;
-    const map = L.map(mapDivRef.current, { zoomControl: true }).setView([36.5, 137.5], 5);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors', maxZoom: 18,
-    }).addTo(map);
+    const center = (mapHomePref && PREF_COORDS[mapHomePref]) || [36.5, 137.5];
+    const zoom = (mapHomePref && PREF_COORDS[mapHomePref]) ? 9 : 5;
+    const map = L.map(mapDivRef.current, { zoomControl: true }).setView(center, zoom);
+    const tileUrl = mapStylePref === 'light'
+      ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    const tileAttr = mapStylePref === 'light'
+      ? '&copy; OpenStreetMap contributors &copy; CARTO'
+      : '&copy; OpenStreetMap contributors';
+    L.tileLayer(tileUrl, { attribution: tileAttr, maxZoom: 18 }).addTo(map);
     layerRef.current = L.markerClusterGroup({ maxClusterRadius: 40, spiderfyOnMaxZoom: true }).addTo(map);
     mapObjRef.current = map;
   }, [leafletReady]);
@@ -1331,7 +1416,7 @@ function MapView({ stickers, shops, onOpen }) {
 /*  全国国道マップ                                                      */
 /* ------------------------------------------------------------------ */
 
-function NationalMapView({ stickers, shops, onOpen }) {
+function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref }) {
   const leafletReady = useLeaflet();
   const mapDivRef = useRef(null);
   const mapObjRef = useRef(null);
@@ -1396,10 +1481,16 @@ function NationalMapView({ stickers, shops, onOpen }) {
   useEffect(() => {
     if (!leafletReady || !mapDivRef.current || mapObjRef.current) return;
     const L = window.L;
-    const map = L.map(mapDivRef.current, { zoomControl: true }).setView([37.2, 138.0], 5);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors', maxZoom: 18,
-    }).addTo(map);
+    const center = (mapHomePref && PREF_COORDS[mapHomePref]) || [37.2, 138.0];
+    const zoom = (mapHomePref && PREF_COORDS[mapHomePref]) ? 9 : 5;
+    const map = L.map(mapDivRef.current, { zoomControl: true }).setView(center, zoom);
+    const tileUrl = mapStylePref === 'light'
+      ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    const tileAttr = mapStylePref === 'light'
+      ? '&copy; OpenStreetMap contributors &copy; CARTO'
+      : '&copy; OpenStreetMap contributors';
+    L.tileLayer(tileUrl, { attribution: tileAttr, maxZoom: 18 }).addTo(map);
     layerRef.current = L.markerClusterGroup({ maxClusterRadius: 40, spiderfyOnMaxZoom: true }).addTo(map);
     mapObjRef.current = map;
   }, [leafletReady]);
@@ -1628,16 +1719,21 @@ function AlbumView({ stickers, shops, onOpen }) {
 /*  訪問予定リスト                                                      */
 /* ------------------------------------------------------------------ */
 
-function VisitPlanView({ stickers, shops, onOpen, onToggleWantToVisit, onToggleRevisit }) {
+function VisitPlanView({ stickers, shops, onOpen, onToggleWantToVisit, onToggleRevisit, visitSortPref, setVisitSortPref }) {
   const [query, setQuery] = useState('');
   const [prefFilter, setPrefFilter] = useState('all');
 
-  const planned = shops
+  const sortItems = (list) => {
+    if (visitSortPref === 'prefecture') return [...list].sort((a, b) => (a.prefecture || '').localeCompare(b.prefecture || '', 'ja'));
+    return list;
+  };
+
+  const planned = sortItems(shops
     .map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) }))
-    .filter(sh => sh.wantToVisit && sh.sticker && !sh.sticker.acquired);
-  const revisitPlanned = shops
+    .filter(sh => sh.wantToVisit && sh.sticker && !sh.sticker.acquired));
+  const revisitPlanned = sortItems(shops
     .map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) }))
-    .filter(sh => sh.revisit && sh.sticker);
+    .filter(sh => sh.revisit && sh.sticker));
 
   const allJoined = useMemo(() =>
     shops.map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) })).filter(sh => sh.sticker),
@@ -1667,6 +1763,10 @@ function VisitPlanView({ stickers, shops, onOpen, onToggleWantToVisit, onToggleR
           <div className="eyebrow">VISIT PLAN</div>
           <h1>訪問予定リスト</h1>
         </div>
+        <select value={visitSortPref} onChange={e => setVisitSortPref(e.target.value)}>
+          <option value="registered">並び順：登録順</option>
+          <option value="prefecture">並び順：都道府県順</option>
+        </select>
       </header>
 
       <div className="panel" style={{ padding: 20, marginBottom: 16 }}>
@@ -1754,8 +1854,13 @@ function VisitPlanView({ stickers, shops, onOpen, onToggleWantToVisit, onToggleR
 /*  統計                                                                */
 /* ------------------------------------------------------------------ */
 
-function StatsView({ stats, stickers, shops }) {
+function StatsView({ stats, stickers, shops, almostEnabled, chartTypePref }) {
   const pieData = [{ name: '取得済み', value: stats.acquired }, { name: '未取得', value: stats.pending }];
+
+  const thisMonthCount = useMemo(() => {
+    const ym = new Date().toISOString().slice(0, 7);
+    return stickers.filter(s => s.acquired && s.acquiredDate && s.acquiredDate.slice(0, 7) === ym).length;
+  }, [stickers]);
 
   const methodData = useMemo(() => {
     const counts = {};
@@ -1807,7 +1912,7 @@ function StatsView({ stats, stickers, shops }) {
         </div>
       </header>
 
-      {almostThere.length > 0 && (
+      {almostEnabled && almostThere.length > 0 && (
         <div className="panel" style={{ padding: 18, marginBottom: 16, border: '1px solid #E7A400', background: '#FFF8E8' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, color: '#8a6400', marginBottom: 8 }}>
             <Bell size={16} /> あと1件でコンプリート！
@@ -1822,16 +1927,35 @@ function StatsView({ stats, stickers, shops }) {
         </div>
       )}
 
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px,1fr))', gap: 16, marginBottom: 16 }}>
+        <div className="panel" style={{ padding: 16, textAlign: 'center' }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>今月の取得数</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--primary)' }}>{thisMonthCount}<span style={{ fontSize: 13, fontWeight: 500 }}>枚</span></div>
+        </div>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px,1fr))', gap: 16 }}>
         <div className="panel" style={{ padding: 20 }}>
           <div className="panel-title">取得済み / 未取得</div>
           <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={2}>
-                {pieData.map((_, i) => <Cell key={i} fill={i === 0 ? '#0B4EA2' : '#C7CCD4'} />)}
-              </Pie>
-              <Tooltip />
-            </PieChart>
+            {chartTypePref === 'bar' ? (
+              <BarChart data={pieData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E6E4DE" />
+                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                <Tooltip />
+                <Bar dataKey="value">
+                  {pieData.map((_, i) => <Cell key={i} fill={i === 0 ? '#0B4EA2' : '#C7CCD4'} />)}
+                </Bar>
+              </BarChart>
+            ) : (
+              <PieChart>
+                <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={2}>
+                  {pieData.map((_, i) => <Cell key={i} fill={i === 0 ? '#0B4EA2' : '#C7CCD4'} />)}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            )}
           </ResponsiveContainer>
         </div>
 
@@ -1958,7 +2082,13 @@ function StatsView({ stats, stickers, shops }) {
 /*  設定・バックアップ                                                    */
 /* ------------------------------------------------------------------ */
 
-function SettingsView({ onExportJSON, onExportCSV, onImport, onMergeMaster, onReset, onResetAcquisitions, count, onInstall, canInstall, darkMode, onToggleDarkMode }) {
+function SettingsView({
+  onExportJSON, onExportCSV, onImport, onMergeMaster, onReset, onResetAcquisitions, count, onInstall, canInstall, darkMode, onToggleDarkMode,
+  sortDefaultPref, setSortDefaultPref, layoutDefaultPref, setLayoutDefaultPref, cardSizePref, setCardSizePref,
+  pageSizePref, setPageSizePref, reminderDaysPref, setReminderDaysPref, almostEnabledPref, setAlmostEnabledPref,
+  requireTypedConfirmPref, setRequireTypedConfirmPref, themeColorPref, setThemeColorPref, fontSizePref, setFontSizePref,
+  mapStylePref, setMapStylePref, mapHomePrefPref, setMapHomePrefPref, chartTypePref, setChartTypePref,
+}) {
   return (
     <div className="view">
       <header className="view-header">
@@ -1982,6 +2112,108 @@ function SettingsView({ onExportJSON, onExportCSV, onImport, onMergeMaster, onRe
         <button className="btn-secondary" onClick={onToggleDarkMode}>
           {darkMode ? '☀️ ライトモードに切り替え' : '🌙 ダークモードに切り替え'}
         </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
+          <span style={{ fontSize: 13 }}>メインカラー</span>
+          <input type="color" value={themeColorPref} onChange={e => setThemeColorPref(e.target.value)} style={{ width: 44, height: 30, padding: 0, border: 'none', background: 'none' }} />
+          <button className="btn-secondary" onClick={() => setThemeColorPref('#0B4EA2')}>初期色に戻す</button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+          <span style={{ fontSize: 13 }}>文字サイズ</span>
+          <select value={fontSizePref} onChange={e => setFontSizePref(e.target.value)}>
+            <option value="normal">標準</option>
+            <option value="large">大きめ</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="panel" style={{ padding: 20, marginBottom: 16 }}>
+        <div className="panel-title">一覧の表示設定</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)' }}>「ステッカー一覧」を開いたときの初期状態です。</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', gap: 10 }}>
+          <label style={{ fontSize: 13 }}>初期の並び順
+            <select value={sortDefaultPref} onChange={e => setSortDefaultPref(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
+              <option value="route-asc">国道番号順</option>
+              <option value="route-desc">国道番号（降順）</option>
+              <option value="prefecture">都道府県順</option>
+              <option value="region">地域順</option>
+              <option value="acquired-date">取得日順</option>
+              <option value="updated">更新日順</option>
+              <option value="shop">販売店順</option>
+              <option value="favorite">お気に入り順</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 13 }}>初期の表示形式
+            <select value={layoutDefaultPref} onChange={e => setLayoutDefaultPref(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
+              <option value="grid">カード表示</option>
+              <option value="list">リスト表示</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 13 }}>カードの大きさ
+            <select value={cardSizePref} onChange={e => setCardSizePref(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
+              <option value="comfortable">大きめ</option>
+              <option value="compact">コンパクト</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 13 }}>一度に表示する件数
+            <select value={pageSizePref} onChange={e => setPageSizePref(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
+              <option value="20">20件</option>
+              <option value="50">50件</option>
+              <option value="100">100件</option>
+              <option value="all">すべて</option>
+            </select>
+          </label>
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>お気に入り店舗だけを都道府県順に見たい場合は、一覧画面の絞り込みで「お気に入りのみ」、並び順で「都道府県順」を選ぶと同じことができます。</p>
+      </div>
+
+      <div className="panel" style={{ padding: 20, marginBottom: 16 }}>
+        <div className="panel-title">地図の表示設定</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', gap: 10 }}>
+          <label style={{ fontSize: 13 }}>地図のデザイン
+            <select value={mapStylePref} onChange={e => setMapStylePref(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
+              <option value="standard">標準</option>
+              <option value="light">淡色</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 13 }}>地図を開いた時の初期位置
+            <select value={mapHomePrefPref} onChange={e => setMapHomePrefPref(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
+              <option value="">全国を表示</option>
+              {Object.keys(PREF_COORDS).map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div className="panel" style={{ padding: 20, marginBottom: 16 }}>
+        <div className="panel-title">統計・通知の設定</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', gap: 10 }}>
+          <label style={{ fontSize: 13 }}>取得済み/未取得グラフの種類
+            <select value={chartTypePref} onChange={e => setChartTypePref(e.target.value)} style={{ width: '100%', marginTop: 4 }}>
+              <option value="pie">円グラフ</option>
+              <option value="bar">棒グラフ</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 13 }}>バックアップ通知の間隔
+            <select value={reminderDaysPref} onChange={e => setReminderDaysPref(Number(e.target.value))} style={{ width: '100%', marginTop: 4 }}>
+              <option value={7}>7日</option>
+              <option value={14}>14日</option>
+              <option value={30}>30日</option>
+              <option value={60}>60日</option>
+              <option value={9999}>通知しない</option>
+            </select>
+          </label>
+        </div>
+        <label className="chk" style={{ marginTop: 12, display: 'inline-flex' }}>
+          <input type="checkbox" checked={almostEnabledPref} onChange={e => setAlmostEnabledPref(e.target.checked)} /> 「あと1件でコンプリート」通知を統計画面に表示する
+        </label>
+      </div>
+
+      <div className="panel" style={{ padding: 20, marginBottom: 16 }}>
+        <div className="panel-title">安全設定</div>
+        <label className="chk">
+          <input type="checkbox" checked={requireTypedConfirmPref} onChange={e => setRequireTypedConfirmPref(e.target.checked)} /> 「データ初期化」実行前に確認テキストの入力を必須にする
+        </label>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>オンにすると、初期化の際に「削除する」と入力しないと実行できなくなります。</p>
       </div>
 
       <div className="panel" style={{ padding: 20, marginBottom: 16 }}>
@@ -2072,6 +2304,9 @@ const CSS = `
 .app-root.dark input, .app-root.dark select, .app-root.dark textarea { background: var(--panel); color: var(--ink); border-color: var(--line); }
 .app-root.dark .panel { background: var(--panel); }
 .app-root.dark .complete-badge { background: #262B33; }
+.app-root.font-large { font-size: 16px; }
+.app-root.font-large h1 { font-size: 1.15em; }
+.card-compact { padding: 10px !important; }
 
 .sidenav {
   width: 220px; flex-shrink: 0; background: var(--panel);
