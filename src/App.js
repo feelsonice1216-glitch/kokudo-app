@@ -66,7 +66,7 @@ function distanceKm(lat1, lng1, lat2, lng2) {
 }
 
 /* 現在地を取得する共通フック */
-function useMyLocation() {
+function useMyLocation(onLocated) {
   const [pos, setPos] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -75,7 +75,12 @@ function useMyLocation() {
     setLoading(true);
     setError('');
     navigator.geolocation.getCurrentPosition(
-      (p) => { setPos({ lat: p.coords.latitude, lng: p.coords.longitude }); setLoading(false); },
+      (p) => {
+        const next = { lat: p.coords.latitude, lng: p.coords.longitude };
+        setPos(next);
+        setLoading(false);
+        if (onLocated) onLocated(next);
+      },
       (err) => { setError('現在地を取得できませんでした（位置情報の許可を確認してください）'); setLoading(false); },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -398,7 +403,20 @@ function DetailModal({ sticker, shopsForSticker, onClose, onSave, onDelete }) {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
             <label className="chk">
-              <input type="checkbox" checked={f.acquired} onChange={e => set('acquired', e.target.checked)} /> 取得済み
+              <input
+                type="checkbox"
+                checked={f.acquired}
+                onChange={e => {
+                  const checked = e.target.checked;
+                  setF(prev => {
+                    const next = { ...prev, acquired: checked };
+                    if (checked && !prev.acquiredShopId && shopsList.length === 1) {
+                      next.acquiredShopId = shopsList[0].id || '__new0';
+                    }
+                    return next;
+                  });
+                }}
+              /> 取得済み
             </label>
             <label className="chk">
               <input type="checkbox" checked={f.favorite} onChange={e => set('favorite', e.target.checked)} /> お気に入り
@@ -410,7 +428,12 @@ function DetailModal({ sticker, shopsForSticker, onClose, onSave, onDelete }) {
 
           {f.acquired && (
             <div style={fieldGrid}>
-              <Field label="取得日"><input type="date" value={f.acquiredDate} onChange={e => set('acquiredDate', e.target.value)} /></Field>
+              <Field label="取得日">
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input type="date" value={f.acquiredDate} onChange={e => set('acquiredDate', e.target.value)} style={{ flex: 1 }} />
+                  <button type="button" className="btn-secondary" style={{ flexShrink: 0, padding: '0 10px' }} onClick={() => set('acquiredDate', new Date().toISOString().slice(0, 10))}>今日</button>
+                </div>
+              </Field>
               <Field label="取得方法">
                 <select value={f.method} onChange={e => set('method', e.target.value)}>
                   <option value="">選択してください</option>
@@ -424,6 +447,7 @@ function DetailModal({ sticker, shopsForSticker, onClose, onSave, onDelete }) {
                   <option value="">未指定</option>
                   {shopsList.map((sh, i) => <option key={sh.id || i} value={sh.id || `__new${i}`}>{sh.name || `店舗${i + 1}`}</option>)}
                 </select>
+                {shopsList.length === 1 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>この国道は1店舗のみの取り扱いのため、自動的に選択されています。</div>}
               </Field>
             </div>
           )}
@@ -665,10 +689,16 @@ export default function App() {
     setStickers(prev => prev.map(s => {
       if (s.id !== id) return s;
       const nextAcquired = !s.acquired;
+      let acquiredShopId = s.acquiredShopId;
+      if (nextAcquired && !acquiredShopId) {
+        const relatedShops = shops.filter(sh => sh.stickerId === id);
+        if (relatedShops.length === 1) acquiredShopId = relatedShops[0].id;
+      }
       return {
         ...s,
         acquired: nextAcquired,
         acquiredDate: nextAcquired ? (s.acquiredDate || today) : '',
+        acquiredShopId: nextAcquired ? acquiredShopId : s.acquiredShopId,
       };
     }));
   };
@@ -1185,11 +1215,29 @@ function MapView({ stickers, shops, onOpen, mapStylePref, mapHomePref }) {
   const [highlightKm, setHighlightKm] = useState('10');
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
-  const { pos: myPos, error: locError, loading: locLoading, locate } = useMyLocation();
 
   const joined = useMemo(() =>
     shops.filter(sh => sh.lat && sh.lng).map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) })).filter(sh => sh.sticker),
   [shops, stickers]);
+
+  const handleLocated = (pos) => {
+    const km = Number(highlightKm) || 10;
+    const near = joined
+      .filter(sh => !sh.sticker.acquired)
+      .map(sh => ({ ...sh, _d: distanceKm(pos.lat, pos.lng, sh.lat, sh.lng) }))
+      .filter(sh => sh._d <= km)
+      .sort((a, b) => a._d - b._d);
+    if (near.length > 0) {
+      const nearest = near[0];
+      const ok = window.confirm(`近くに訪問可能距離の店舗（国道${nearest.sticker.routeNumber}号 ${nearest.name || '販売店'}）があります。Googleマップを表示しますか？`);
+      if (ok) {
+        if (nearest.mapUrl) window.open(nearest.mapUrl, '_blank');
+        else alert('この店舗にはGoogleマップのリンクが登録されていません。');
+      }
+    }
+  };
+
+  const { pos: myPos, error: locError, loading: locLoading, locate } = useMyLocation(handleLocated);
 
   const filtered = useMemo(() => {
     let list = [...joined];
