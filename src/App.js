@@ -1477,7 +1477,31 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
   const [highlightKm, setHighlightKm] = useState('10');
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
-  const { pos: myPos, error: locError, loading: locLoading, locate } = useMyLocation();
+
+  const prefectures = useMemo(() => Array.from(new Set(shops.map(sh => sh.prefecture).filter(Boolean))).sort(), [shops]);
+
+  const joined = useMemo(() =>
+    shops.filter(sh => sh.lat && sh.lng).map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) })).filter(sh => sh.sticker),
+  [shops, stickers]);
+
+  const handleLocated = (pos) => {
+    const km = Number(highlightKm) || 10;
+    const near = joined
+      .filter(sh => !sh.sticker.acquired)
+      .map(sh => ({ ...sh, _d: distanceKm(pos.lat, pos.lng, sh.lat, sh.lng) }))
+      .filter(sh => sh._d <= km)
+      .sort((a, b) => a._d - b._d);
+    if (near.length > 0) {
+      const nearest = near[0];
+      const ok = window.confirm(`近くに訪問可能距離の店舗（国道${nearest.sticker.routeNumber}号 ${nearest.name || '販売店'}）があります。Googleマップを表示しますか？`);
+      if (ok) {
+        if (nearest.mapUrl) window.open(nearest.mapUrl, '_blank');
+        else alert('この店舗にはGoogleマップのリンクが登録されていません。');
+      }
+    }
+  };
+
+  const { pos: myPos, error: locError, loading: locLoading, locate } = useMyLocation(handleLocated);
 
   useEffect(() => {
     if (!leafletReady || !mapObjRef.current || !myPos) return;
@@ -1493,11 +1517,7 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
     mapObjRef.current.setView([myPos.lat, myPos.lng], 9, { animate: true });
   }, [myPos, leafletReady]);
 
-  const prefectures = useMemo(() => Array.from(new Set(shops.map(sh => sh.prefecture).filter(Boolean))).sort(), [shops]);
 
-  const joined = useMemo(() =>
-    shops.filter(sh => sh.lat && sh.lng).map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) })).filter(sh => sh.sticker),
-  [shops, stickers]);
 
   const filtered = useMemo(() => {
     let list = [...joined];
