@@ -1220,6 +1220,8 @@ function MapView({ stickers, shops, onOpen, mapStylePref, mapHomePref }) {
     shops.filter(sh => sh.lat && sh.lng).map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) })).filter(sh => sh.sticker),
   [shops, stickers]);
 
+  const [nearbyAlert, setNearbyAlert] = useState(null);
+
   const handleLocated = (pos) => {
     const km = Number(highlightKm) || 10;
     const near = joined
@@ -1227,14 +1229,7 @@ function MapView({ stickers, shops, onOpen, mapStylePref, mapHomePref }) {
       .map(sh => ({ ...sh, _d: distanceKm(pos.lat, pos.lng, sh.lat, sh.lng) }))
       .filter(sh => sh._d <= km)
       .sort((a, b) => a._d - b._d);
-    if (near.length > 0) {
-      const nearest = near[0];
-      const ok = window.confirm(`近くに訪問可能距離の店舗（国道${nearest.sticker.routeNumber}号 ${nearest.name || '販売店'}）があります。Googleマップを表示しますか？`);
-      if (ok) {
-        if (nearest.mapUrl) window.open(nearest.mapUrl, '_blank');
-        else alert('この店舗にはGoogleマップのリンクが登録されていません。');
-      }
-    }
+    setNearbyAlert(near.length > 0 ? near[0] : null);
   };
 
   const { pos: myPos, error: locError, loading: locLoading, locate } = useMyLocation(handleLocated);
@@ -1357,6 +1352,18 @@ function MapView({ stickers, shops, onOpen, mapStylePref, mapHomePref }) {
         </button>
       </header>
       {locError && <div style={{ fontSize: 12, color: '#C0392B', marginBottom: 10 }}>{locError}</div>}
+      {nearbyAlert && (
+        <div className="panel" style={{ padding: 14, marginBottom: 10, border: '1px solid #2E9E4F', background: '#EAF7EE', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Bell size={16} color="#1E7A38" />
+          <div style={{ flex: 1, fontSize: 13, color: '#1E7A38', minWidth: 180 }}>
+            近くに訪問可能距離の店舗（国道{nearbyAlert.sticker.routeNumber}号 {nearbyAlert.name || '販売店'}）があります。
+          </div>
+          {nearbyAlert.mapUrl && (
+            <button className="btn-secondary" onClick={() => window.open(nearbyAlert.mapUrl, '_blank')}>Googleマップを表示</button>
+          )}
+          <button className="icon-btn" onClick={() => setNearbyAlert(null)}><X size={15} /></button>
+        </div>
+      )}
 
       <div className="map-layout">
         <div className="map-sidebar panel">
@@ -1484,6 +1491,8 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
     shops.filter(sh => sh.lat && sh.lng).map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) })).filter(sh => sh.sticker),
   [shops, stickers]);
 
+  const [nearbyAlert, setNearbyAlert] = useState(null);
+
   const handleLocated = (pos) => {
     const km = Number(highlightKm) || 10;
     const near = joined
@@ -1491,14 +1500,7 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
       .map(sh => ({ ...sh, _d: distanceKm(pos.lat, pos.lng, sh.lat, sh.lng) }))
       .filter(sh => sh._d <= km)
       .sort((a, b) => a._d - b._d);
-    if (near.length > 0) {
-      const nearest = near[0];
-      const ok = window.confirm(`近くに訪問可能距離の店舗（国道${nearest.sticker.routeNumber}号 ${nearest.name || '販売店'}）があります。Googleマップを表示しますか？`);
-      if (ok) {
-        if (nearest.mapUrl) window.open(nearest.mapUrl, '_blank');
-        else alert('この店舗にはGoogleマップのリンクが登録されていません。');
-      }
-    }
+    setNearbyAlert(near.length > 0 ? near[0] : null);
   };
 
   const { pos: myPos, error: locError, loading: locLoading, locate } = useMyLocation(handleLocated);
@@ -1669,6 +1671,18 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
         </button>
       </header>
       {locError && <div style={{ fontSize: 12, color: '#C0392B', marginBottom: 10 }}>{locError}</div>}
+      {nearbyAlert && (
+        <div className="panel" style={{ padding: 14, marginBottom: 10, border: '1px solid #2E9E4F', background: '#EAF7EE', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Bell size={16} color="#1E7A38" />
+          <div style={{ flex: 1, fontSize: 13, color: '#1E7A38', minWidth: 180 }}>
+            近くに訪問可能距離の店舗（国道{nearbyAlert.sticker.routeNumber}号 {nearbyAlert.name || '販売店'}）があります。
+          </div>
+          {nearbyAlert.mapUrl && (
+            <button className="btn-secondary" onClick={() => window.open(nearbyAlert.mapUrl, '_blank')}>Googleマップを表示</button>
+          )}
+          <button className="icon-btn" onClick={() => setNearbyAlert(null)}><X size={15} /></button>
+        </div>
+      )}
 
       <div className="toolbar panel" style={{ marginBottom: 14 }}>
         <select value={region} onChange={e => { setRegion(e.target.value); setPrefecture('all'); }}>
