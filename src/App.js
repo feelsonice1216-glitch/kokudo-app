@@ -15,6 +15,18 @@ import {
 
 const STORAGE_KEY = 'kokudo-data-v2';
 const REGIONS = ['北海道', '東北', '関東', '中部', '近畿', '中国', '四国', '九州・沖縄'];
+/* 販売店の地域は、その店舗の都道府県から決める */
+const PREF_REGION = {
+  '青森県': '東北', '岩手県': '東北', '宮城県': '東北', '秋田県': '東北', '山形県': '東北', '福島県': '東北',
+  '茨城県': '関東', '栃木県': '関東', '群馬県': '関東', '埼玉県': '関東', '千葉県': '関東', '東京都': '関東', '神奈川県': '関東',
+  '新潟県': '中部', '富山県': '中部', '石川県': '中部', '福井県': '中部', '山梨県': '中部', '長野県': '中部', '岐阜県': '中部', '静岡県': '中部', '愛知県': '中部',
+  '三重県': '近畿', '滋賀県': '近畿', '京都府': '近畿', '大阪府': '近畿', '兵庫県': '近畿', '奈良県': '近畿', '和歌山県': '近畿',
+  '鳥取県': '中国', '島根県': '中国', '岡山県': '中国', '広島県': '中国', '山口県': '中国',
+  '徳島県': '四国', '香川県': '四国', '愛媛県': '四国', '高知県': '四国',
+  '福岡県': '九州・沖縄', '佐賀県': '九州・沖縄', '長崎県': '九州・沖縄', '熊本県': '九州・沖縄', '大分県': '九州・沖縄', '宮崎県': '九州・沖縄', '鹿児島県': '九州・沖縄', '沖縄県': '九州・沖縄',
+  '北海道': '北海道',
+};
+const shopRegion = (prefecture) => PREF_REGION[prefecture] || '';
 const METHODS = ['現地購入', 'オンライン', 'フリマアプリ', '頂き物', 'その他'];
 
 /* 都道府県庁所在地のおおよその座標（地図の初期表示位置に使用） */
@@ -1337,7 +1349,7 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
 
   const filtered = useMemo(() => {
     let list = [...joined];
-    if (region !== 'all') list = list.filter(sh => sh.sticker.region === region);
+    if (region !== 'all') list = list.filter(sh => shopRegion(sh.prefecture) === region);
     if (prefecture !== 'all') list = list.filter(sh => sh.prefecture === prefecture);
     if (statusFilter === 'acquired') list = list.filter(sh => sh.sticker.acquired);
     if (statusFilter === 'visited') list = list.filter(sh => sh.sticker.visitedOnly && !sh.sticker.acquired);
