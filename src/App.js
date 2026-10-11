@@ -37,6 +37,10 @@ const PREF_COORDS = {
   '鹿児島県': [31.5602, 130.5581], '沖縄県': [26.2124, 127.6809],
 };
 
+/* 都道府県コード順（JIS X 0401：01北海道〜47沖縄） */
+const PREF_JIS_ORDER = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県'];
+const prefJisIndex = (name) => { const i = PREF_JIS_ORDER.indexOf(name); return i === -1 ? 999 : i; };
+
 /* コンビニチェーン判定用（店名にこれらの語を含む場合はコンビニとみなす） */
 const CONVENIENCE_KEYWORDS = ['セブン-イレブン', 'セブンイレブン', 'ファミリーマート', 'ローソン', 'セイコーマート', 'ミニストップ', 'デイリーヤマザキ', 'ポプラ', 'セーブオン'];
 const isConvenienceStore = (name) => !!name && CONVENIENCE_KEYWORDS.some(k => name.includes(k));
@@ -894,7 +898,7 @@ export default function App() {
         <NavBtn icon={<Home size={18} />} label="ホーム" active={view === 'home'} onClick={() => setView('home')} />
         <NavBtn icon={<LayoutGrid size={18} />} label="ステッカー一覧" active={view === 'list'} onClick={() => setView('list')} />
         <NavBtn icon={<MapPin size={18} />} label="販売店マップ" active={view === 'map'} onClick={() => setView('map')} />
-        <NavBtn icon={<LayoutGrid size={18} />} label="国道ステッカーコレクションファイル" active={view === 'collectionfile'} onClick={() => setView('collectionfile')} />
+        <NavBtn icon={<LayoutGrid size={18} />} label="コレクションファイル" active={view === 'collectionfile'} onClick={() => setView('collectionfile')} />
         <NavBtn icon={<CalendarDays size={18} />} label="訪問予定リスト" active={view === 'visitplan'} onClick={() => setView('visitplan')} />
         <NavBtn icon={<Images size={18} />} label="アルバム" active={view === 'album'} onClick={() => setView('album')} />
         <NavBtn icon={<BarChart3 size={18} />} label="統計" active={view === 'stats'} onClick={() => setView('stats')} />
@@ -1766,6 +1770,7 @@ function CollectionFileView({ stickers, shops, onOpen }) {
   }, [filteredCells]);
 
   const [pageIndex, setPageIndex] = useState(0);
+  const [openCellKey, setOpenCellKey] = useState(null);
   const [flipDir, setFlipDir] = useState(null); // 'next' | 'prev' | null
   const [flipping, setFlipping] = useState(false);
   useEffect(() => { setPageIndex(0); }, [regionFilter]);
@@ -1797,9 +1802,19 @@ function CollectionFileView({ stickers, shops, onOpen }) {
               <RouteBadge number={c.n} status={c.status} size={48} />
               {c.status === 'acquired' && (
                 <div className="binder-cell-info">
-                  <div className="line date">{c.sticker.acquiredDate || '\u00A0'}</div>
-                  <div className="line shop">{shop?.name || '\u00A0'}</div>
-                  <div className="line kaido">{c.sticker.notes || '\u00A0'}</div>
+                  <div
+                    className="line date"
+                    style={{ cursor: 'pointer', textDecoration: 'underline dotted' }}
+                    onClick={e => { e.stopPropagation(); setOpenCellKey(openCellKey === c.n ? null : c.n); }}
+                  >
+                    {c.sticker.acquiredDate || '取得日未入力'}
+                  </div>
+                  {openCellKey === c.n && (
+                    <>
+                      <div className="line shop">{shop?.name || '取得店舗未入力'}</div>
+                      {c.sticker.notes && <div className="line kaido">{c.sticker.notes}</div>}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -1819,7 +1834,7 @@ function CollectionFileView({ stickers, shops, onOpen }) {
       <header className="view-header">
         <div>
           <div className="eyebrow">COLLECTION FILE</div>
-          <h1>国道ステッカーコレクションファイル</h1>
+          <h1>コレクションファイル</h1>
         </div>
         <select value={regionFilter} onChange={e => setRegionFilter(e.target.value)}>
           <option value="all">地域：すべて</option>
@@ -2016,12 +2031,15 @@ function StatsView({ stats, stickers, shops, almostEnabled, chartTypePref }) {
 
   const regionCompletion = useMemo(() => stats.byRegion.map(r => ({ ...r, complete: r.total > 0 && r.acquired === r.total })), [stats.byRegion]);
 
-  const remainingRanking = useMemo(() =>
-    prefCompletion
+  const [rankSort, setRankSort] = useState('code');
+  const remainingRanking = useMemo(() => {
+    const list = prefCompletion
       .map(p => ({ ...p, remaining: p.total - p.acquired }))
-      .filter(p => p.remaining > 0)
-      .sort((a, b) => a.remaining - b.remaining || a.name.localeCompare(b.name, 'ja')),
-  [prefCompletion]);
+      .filter(p => p.remaining > 0);
+    if (rankSort === 'remainingAsc') return list.sort((a, b) => a.remaining - b.remaining || prefJisIndex(a.name) - prefJisIndex(b.name));
+    if (rankSort === 'remainingDesc') return list.sort((a, b) => b.remaining - a.remaining || prefJisIndex(a.name) - prefJisIndex(b.name));
+    return list.sort((a, b) => prefJisIndex(a.name) - prefJisIndex(b.name));
+  }, [prefCompletion, rankSort]);
 
   const almostThere = useMemo(() => {
     const prefAlmost = prefCompletion.filter(p => !p.complete && p.total - p.acquired === 1).map(p => ({ ...p, kind: '都道府県' }));
@@ -2150,13 +2168,20 @@ function StatsView({ stats, stickers, shops, almostEnabled, chartTypePref }) {
 
       <div className="panel" style={{ padding: 20, marginTop: 16 }}>
         <div className="panel-title">都道府県別 残り枚数ランキング</div>
+        <div style={{ marginTop: 8 }}>
+          <select value={rankSort} onChange={e => setRankSort(e.target.value)}>
+            <option value="code">並び順：都道府県コード順（北から南）</option>
+            <option value="remainingAsc">並び順：残り枚数が少ない順</option>
+            <option value="remainingDesc">並び順：残り枚数が多い順</option>
+          </select>
+        </div>
         {remainingRanking.length === 0 ? (
           <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>すべての都道府県でコンプリートしています！</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
             {remainingRanking.map((p, i) => (
               <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                <span style={{ width: 22, color: 'var(--muted)', fontWeight: 600 }}>{i + 1}</span>
+                <span style={{ width: 22, color: 'var(--muted)', fontWeight: 600 }}>{rankSort === 'code' ? prefJisIndex(p.name) + 1 : i + 1}</span>
                 <span style={{ width: 70, fontWeight: 500 }}>{p.name}</span>
                 <div style={{ flex: 1, height: 8, borderRadius: 999, background: '#EEEEEA', overflow: 'hidden' }}>
                   <div style={{ width: `${(p.acquired / p.total) * 100}%`, height: '100%', background: '#0B4EA2' }} />
