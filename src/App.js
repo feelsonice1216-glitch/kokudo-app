@@ -14,17 +14,19 @@ import {
 /* ------------------------------------------------------------------ */
 
 const STORAGE_KEY = 'kokudo-data-v2';
-const REGIONS = ['北海道', '東北', '関東', '中部', '近畿', '中国', '四国', '九州・沖縄'];
+const REGIONS = ["北海道", "東北", "関東", "北陸", "甲信越", "東海", "近畿", "中国", "四国", "九州・沖縄"];
 /* 販売店の地域は、その店舗の都道府県から決める */
 const PREF_REGION = {
+  '北海道': '北海道',
   '青森県': '東北', '岩手県': '東北', '宮城県': '東北', '秋田県': '東北', '山形県': '東北', '福島県': '東北',
   '茨城県': '関東', '栃木県': '関東', '群馬県': '関東', '埼玉県': '関東', '千葉県': '関東', '東京都': '関東', '神奈川県': '関東',
-  '新潟県': '中部', '富山県': '中部', '石川県': '中部', '福井県': '中部', '山梨県': '中部', '長野県': '中部', '岐阜県': '中部', '静岡県': '中部', '愛知県': '中部',
-  '三重県': '近畿', '滋賀県': '近畿', '京都府': '近畿', '大阪府': '近畿', '兵庫県': '近畿', '奈良県': '近畿', '和歌山県': '近畿',
+  '新潟県': '北陸', '富山県': '北陸', '石川県': '北陸', '福井県': '北陸',
+  '山梨県': '甲信越', '長野県': '甲信越',
+  '静岡県': '東海', '愛知県': '東海', '岐阜県': '東海', '三重県': '東海',
+  '滋賀県': '近畿', '京都府': '近畿', '大阪府': '近畿', '兵庫県': '近畿', '奈良県': '近畿', '和歌山県': '近畿',
   '鳥取県': '中国', '島根県': '中国', '岡山県': '中国', '広島県': '中国', '山口県': '中国',
   '徳島県': '四国', '香川県': '四国', '愛媛県': '四国', '高知県': '四国',
   '福岡県': '九州・沖縄', '佐賀県': '九州・沖縄', '長崎県': '九州・沖縄', '熊本県': '九州・沖縄', '大分県': '九州・沖縄', '宮崎県': '九州・沖縄', '鹿児島県': '九州・沖縄', '沖縄県': '九州・沖縄',
-  '北海道': '北海道',
 };
 const shopRegion = (prefecture) => PREF_REGION[prefecture] || '';
 const METHODS = ['現地購入', 'オンライン', 'フリマアプリ', '頂き物', 'その他'];
@@ -698,10 +700,16 @@ export default function App() {
     });
     const prefRanking = Object.entries(byPref).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count }));
 
+    const stickerRegionOf = (s) => {
+      const related = shops.filter(sh => sh.stickerId === s.id);
+      const acq = s.acquired && s.acquiredShopId ? related.find(sh => sh.id === s.acquiredShopId) : null;
+      const shop = acq || related[0];
+      return shop ? shopRegion(shop.prefecture) : (s.region || '');
+    };
     const byRegion = REGIONS.map(r => ({
       name: r,
-      total: stickers.filter(s => s.region === r).length,
-      acquired: stickers.filter(s => s.region === r && s.acquired).length,
+      total: stickers.filter(s => stickerRegionOf(s) === r).length,
+      acquired: stickers.filter(s => stickerRegionOf(s) === r && s.acquired).length,
     }));
 
     const byMonth = {};
@@ -1786,8 +1794,13 @@ function CollectionFileView({ stickers, shops, onOpen }) {
 
   const filteredCells = useMemo(() => {
     if (regionFilter === 'all') return cells;
-    return cells.filter(c => c.sticker && c.sticker.region === regionFilter);
-  }, [cells, regionFilter]);
+    const effRegion = (c) => {
+      if (!c.sticker) return '';
+      const shop = c.status === 'acquired' && c.sticker.acquiredShopId ? shopById.get(c.sticker.acquiredShopId) : null;
+      return shop ? shopRegion(shop.prefecture) : (c.sticker.region || '');
+    };
+    return cells.filter(c => c.sticker && effRegion(c) === regionFilter);
+  }, [cells, regionFilter, shopById]);
 
   const acquiredCount = cells.filter(c => c.status === 'acquired').length;
   const missingCount = cells.filter(c => c.status === 'missing').length;
@@ -1829,7 +1842,7 @@ function CollectionFileView({ stickers, shops, onOpen }) {
               className={`binder-cell ${c.status}`}
               onClick={() => {
                 if (!c.sticker) return;
-                if (c.status === 'acquired') { setInfoCell({ sticker: c.sticker, shopName: shop?.name || '' }); return; }
+                if (c.status === 'acquired') { setInfoCell({ sticker: c.sticker, shopName: shop?.name || '', prefecture: shop?.prefecture || '', region: shop ? shopRegion(shop.prefecture) : (c.sticker.region || '') }); return; }
                 onOpen(c.sticker);
               }}
               title={c.sticker ? c.sticker.name : `国道${c.n}号（欠番）`}
@@ -1840,7 +1853,7 @@ function CollectionFileView({ stickers, shops, onOpen }) {
                   <div
                     className="line date"
                     style={{ cursor: 'pointer', textDecoration: 'underline dotted', whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' }}
-                    onClick={e => { e.stopPropagation(); setInfoCell({ sticker: c.sticker, shopName: shop?.name || '' }); }}
+                    onClick={e => { e.stopPropagation(); setInfoCell({ sticker: c.sticker, shopName: shop?.name || '', prefecture: shop?.prefecture || '', region: shop ? shopRegion(shop.prefecture) : (c.sticker.region || '') }); }}
                   >
                     {fmtAcqDateShort(c.sticker.acquiredDate)}
                   </div>
@@ -1904,11 +1917,13 @@ function CollectionFileView({ stickers, shops, onOpen }) {
             </div>
             <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 12px', margin: 0, fontSize: 13 }}>
               <dt style={{ color: 'var(--muted)' }}>ステッカー名</dt>
-              <dd style={{ margin: 0, fontWeight: 600 }}>国道{infoCell.sticker.routeNumber}号 {infoCell.sticker.name || ''}</dd>
+              <dd style={{ margin: 0, fontWeight: 600 }}>国道{infoCell.sticker.routeNumber}号</dd>
               <dt style={{ color: 'var(--muted)' }}>地域</dt>
-              <dd style={{ margin: 0 }}>{infoCell.sticker.region || '未入力'}</dd>
+              <dd style={{ margin: 0 }}>{infoCell.region || '未入力'}</dd>
               <dt style={{ color: 'var(--muted)' }}>取得日</dt>
               <dd style={{ margin: 0 }}>{infoCell.sticker.acquiredDate || '未入力'}</dd>
+              <dt style={{ color: 'var(--muted)' }}>都道府県</dt>
+              <dd style={{ margin: 0 }}>{infoCell.prefecture || '未入力'}</dd>
               <dt style={{ color: 'var(--muted)' }}>取得店</dt>
               <dd style={{ margin: 0 }}>{infoCell.shopName || '未入力'}</dd>
               <dt style={{ color: 'var(--muted)' }}>メモ</dt>
