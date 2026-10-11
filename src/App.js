@@ -37,6 +37,23 @@ const PREF_COORDS = {
   '鹿児島県': [31.5602, 130.5581], '沖縄県': [26.2124, 127.6809],
 };
 
+/* コンビニチェーン判定用（店名にこれらの語を含む場合はコンビニとみなす） */
+const CONVENIENCE_KEYWORDS = ['セブン-イレブン', 'セブンイレブン', 'ファミリーマート', 'ローソン', 'セイコーマート', 'ミニストップ', 'デイリーヤマザキ', 'ポプラ', 'セーブオン'];
+const isConvenienceStore = (name) => !!name && CONVENIENCE_KEYWORDS.some(k => name.includes(k));
+
+/* "9:00-17:00" のような営業時間の文字列から開始・終了(分)を取り出す。"24時間"は0:00-24:00扱い */
+function parseBusinessHours(text) {
+  if (!text) return null;
+  if (text.includes('24時間')) return { openMin: 0, closeMin: 24 * 60, label: text };
+  const m = text.match(/(\d{1,2})[:：](\d{2})\s*[-〜~]\s*(\d{1,2})[:：](\d{2})/);
+  if (!m) return null;
+  const openMin = (+m[1]) * 60 + (+m[2]);
+  let closeMin = (+m[3]) * 60 + (+m[4]);
+  if (closeMin <= openMin) closeMin += 24 * 60; // 日をまたぐ場合
+  return { openMin, closeMin, label: text };
+}
+const timeToMin = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 /* 端末に保存する表示・動作設定 */
@@ -271,10 +288,12 @@ function toCSVRows(stickers, shops) {
 const ONIGIRI_OUTER_PATH = 'M30,4 L70,4 C85,4 96,15 96,32 C96,52 90,64 78,76 L54,101 C52,104 48,104 46,101 L22,76 C10,64 4,52 4,32 C4,15 15,4 30,4 Z';
 const ONIGIRI_INNER_PATH = 'M32,10 L68,10 C80,10 90,19 90,33 C90,50 85,60 75,70 L52,95 C51,97 49,97 48,95 L25,70 C15,60 10,50 10,33 C10,19 20,10 32,10 Z';
 
-function RouteBadge({ number, acquired, size = 44 }) {
+function RouteBadge({ number, acquired, status, size = 44 }) {
   const h = Math.round(size * 1.12);
   const showLabel = size >= 30;
-  const fill = acquired ? '#0B4EA2' : '#B9BDC6';
+  const resolvedStatus = status || (acquired ? 'acquired' : 'pending');
+  const fill = resolvedStatus === 'acquired' ? '#0B4EA2' : (resolvedStatus === 'missing' ? '#1A1D22' : '#B9BDC6');
+  const textFill = '#fff';
   return (
     <svg
       width={size} height={h} viewBox="0 0 100 110"
@@ -284,14 +303,14 @@ function RouteBadge({ number, acquired, size = 44 }) {
       <path d={ONIGIRI_INNER_PATH} fill={fill} />
       {showLabel && (
         <>
-          <text x="34" y="30" textAnchor="middle" fontFamily="'Noto Sans JP', sans-serif" fontWeight="700" fontSize="13" fill="#fff">国</text>
-          <text x="66" y="30" textAnchor="middle" fontFamily="'Noto Sans JP', sans-serif" fontWeight="700" fontSize="13" fill="#fff">道</text>
+          <text x="34" y="30" textAnchor="middle" fontFamily="'Noto Sans JP', sans-serif" fontWeight="700" fontSize="13" fill={textFill}>国</text>
+          <text x="66" y="30" textAnchor="middle" fontFamily="'Noto Sans JP', sans-serif" fontWeight="700" fontSize="13" fill={textFill}>道</text>
         </>
       )}
       <text
         x="50" y={showLabel ? 62 : 58} textAnchor="middle"
         fontFamily="'Oswald', sans-serif" fontWeight="700"
-        fontSize={showLabel ? 30 : 38} fill="#fff"
+        fontSize={showLabel ? 30 : 38} fill={textFill}
       >{number}</text>
       {showLabel && (
         <text x="50" y="80" textAnchor="middle" fontFamily="'Oswald', sans-serif" fontWeight="500" fontSize="11" fill="#fff" letterSpacing="1">ROUTE</text>
@@ -868,6 +887,7 @@ export default function App() {
         <NavBtn icon={<LayoutGrid size={18} />} label="ステッカー一覧" active={view === 'list'} onClick={() => setView('list')} />
         <NavBtn icon={<MapPin size={18} />} label="販売店マップ" active={view === 'map'} onClick={() => setView('map')} />
         <NavBtn icon={<Navigation size={18} />} label="全国国道マップ" active={view === 'nationalmap'} onClick={() => setView('nationalmap')} />
+        <NavBtn icon={<LayoutGrid size={18} />} label="国道ステッカーコレクションファイル" active={view === 'collectionfile'} onClick={() => setView('collectionfile')} />
         <NavBtn icon={<CalendarDays size={18} />} label="訪問予定リスト" active={view === 'visitplan'} onClick={() => setView('visitplan')} />
         <NavBtn icon={<Images size={18} />} label="アルバム" active={view === 'album'} onClick={() => setView('album')} />
         <NavBtn icon={<BarChart3 size={18} />} label="統計" active={view === 'stats'} onClick={() => setView('stats')} />
@@ -890,6 +910,7 @@ export default function App() {
         )}
         {view === 'map' && <MapView stickers={stickers} shops={shops} onOpen={openEditor} mapStylePref={mapStylePref} mapHomePref={mapHomePrefPref} />}
         {view === 'nationalmap' && <NationalMapView stickers={stickers} shops={shops} onOpen={openEditor} mapStylePref={mapStylePref} mapHomePref={mapHomePrefPref} />}
+        {view === 'collectionfile' && <CollectionFileView stickers={stickers} shops={shops} onOpen={openEditor} />}
         {view === 'visitplan' && <VisitPlanView stickers={stickers} shops={shops} onOpen={openEditor} onToggleWantToVisit={toggleWantToVisit} onToggleRevisit={toggleRevisit} visitSortPref={visitSortPref} setVisitSortPref={setVisitSortPref} />}
         {view === 'album' && <AlbumView stickers={stickers} shops={shops} onOpen={openEditor} />}
         {view === 'stats' && <StatsView stats={stats} stickers={stickers} shops={shops} almostEnabled={almostEnabledPref} chartTypePref={chartTypePref} />}
@@ -1200,270 +1221,17 @@ function useLeaflet() {
   return ready;
 }
 
+/* 販売店マップは全国国道マップと同じ仕様（見出しのみ異なる） */
 function MapView({ stickers, shops, onOpen, mapStylePref, mapHomePref }) {
-  const leafletReady = useLeaflet();
-  const mapDivRef = useRef(null);
-  const mapObjRef = useRef(null);
-  const layerRef = useRef(null);
-  const myMarkerRef = useRef(null);
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('all');
-  const [selectedId, setSelectedId] = useState(null);
-  const [embedMode, setEmbedMode] = useState('google');
-  const [sortMode, setSortMode] = useState('default');
-  const [radius, setRadius] = useState('all');
-  const [highlightKm, setHighlightKm] = useState('10');
-  const onOpenRef = useRef(onOpen);
-  onOpenRef.current = onOpen;
-
-  const joined = useMemo(() =>
-    shops.filter(sh => sh.lat && sh.lng).map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) })).filter(sh => sh.sticker),
-  [shops, stickers]);
-
-  const [nearbyAlert, setNearbyAlert] = useState(null);
-
-  const handleLocated = (pos) => {
-    const km = Number(highlightKm) || 10;
-    const near = joined
-      .filter(sh => !sh.sticker.acquired)
-      .map(sh => ({ ...sh, _d: distanceKm(pos.lat, pos.lng, sh.lat, sh.lng) }))
-      .filter(sh => sh._d <= km)
-      .sort((a, b) => a._d - b._d);
-    setNearbyAlert(near.length > 0 ? near[0] : null);
-  };
-
-  const { pos: myPos, error: locError, loading: locLoading, locate } = useMyLocation(handleLocated);
-
-  const filtered = useMemo(() => {
-    let list = [...joined];
-    if (query.trim()) {
-      const q = query.trim().toLowerCase();
-      list = list.filter(sh =>
-        sh.sticker.name?.toLowerCase().includes(q) || sh.name?.toLowerCase().includes(q) ||
-        sh.prefecture?.toLowerCase().includes(q) || String(sh.sticker.routeNumber).includes(q)
-      );
-    }
-    if (filter === 'acquired') list = list.filter(sh => sh.sticker.acquired);
-    if (filter === 'visited') list = list.filter(sh => sh.sticker.visitedOnly && !sh.sticker.acquired);
-    if (filter === 'pending') list = list.filter(sh => !sh.sticker.acquired);
-    if (filter === 'favorite') list = list.filter(sh => sh.sticker.favorite);
-    if (myPos) {
-      list = list.map(sh => ({ ...sh, _dist: distanceKm(myPos.lat, myPos.lng, sh.lat, sh.lng) }));
-      if (radius !== 'all') list = list.filter(sh => sh._dist <= Number(radius));
-      if (sortMode === 'distance') list.sort((a, b) => a._dist - b._dist);
-    }
-    return list;
-  }, [joined, query, filter, myPos, sortMode, radius]);
-
-  const selected = shops.find(sh => sh.id === selectedId);
-  const selectedSticker = selected ? stickers.find(s => s.id === selected.stickerId) : null;
-
-  useEffect(() => {
-    if (!leafletReady || !mapDivRef.current || mapObjRef.current) return;
-    const L = window.L;
-    const center = (mapHomePref && PREF_COORDS[mapHomePref]) || [36.5, 137.5];
-    const zoom = (mapHomePref && PREF_COORDS[mapHomePref]) ? 9 : 5;
-    const map = L.map(mapDivRef.current, { zoomControl: true }).setView(center, zoom);
-    const tileUrl = mapStylePref === 'light'
-      ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-    const tileAttr = mapStylePref === 'light'
-      ? '&copy; OpenStreetMap contributors &copy; CARTO'
-      : '&copy; OpenStreetMap contributors';
-    L.tileLayer(tileUrl, { attribution: tileAttr, maxZoom: 18 }).addTo(map);
-    layerRef.current = L.markerClusterGroup({ maxClusterRadius: 40, spiderfyOnMaxZoom: true }).addTo(map);
-    mapObjRef.current = map;
-  }, [leafletReady]);
-
-  useEffect(() => {
-    if (!leafletReady || !mapObjRef.current || !layerRef.current) return;
-    const L = window.L;
-    layerRef.current.clearLayers();
-    filtered.forEach(sh => {
-      const color = sh.sticker.acquired ? '#0B4EA2' : (sh.sticker.visitedOnly ? '#8E44AD' : '#B9BDC6');
-      const isNear = myPos && typeof sh._dist === 'number' && sh._dist <= Number(highlightKm);
-      const ring = isNear ? '3px solid #2E9E4F' : (sh.sticker.favorite ? '3px solid #E7A400' : '2px solid #fff');
-      const glow = isNear ? 'box-shadow:0 0 0 4px rgba(46,158,79,0.28), 0 1px 4px rgba(0,0,0,0.35);' : 'box-shadow:0 1px 4px rgba(0,0,0,0.35);';
-      const icon = L.divIcon({
-        className: '',
-        html: `<div style="width:18px;height:18px;border-radius:50%;background:${color};border:${ring};${glow}"></div>`,
-        iconSize: [18, 18], iconAnchor: [9, 9],
-      });
-      const marker = L.marker([sh.lat, sh.lng], { icon }).addTo(layerRef.current);
-      const statusLabel = sh.sticker.acquired ? '取得済み' : (sh.sticker.visitedOnly ? '訪問のみ（未購入）' : '未取得');
-      const statusBg = sh.sticker.acquired ? '#E4F0FF' : (sh.sticker.visitedOnly ? '#F3E8FA' : '#F0F0EE');
-      const statusColor = sh.sticker.acquired ? '#0B4EA2' : (sh.sticker.visitedOnly ? '#8E44AD' : '#767b85');
-      const content = document.createElement('div');
-      content.style.fontFamily = "'Noto Sans JP', sans-serif";
-      content.style.fontSize = '13px';
-      content.innerHTML = `
-        <div style="font-weight:600;margin-bottom:2px;">国道${sh.sticker.routeNumber}号 ${sh.sticker.name || ''}</div>
-        <div style="color:#767b85;margin-bottom:6px;">${sh.name || '販売店未登録'}${typeof sh._dist === 'number' ? ` ・ 現在地から約${sh._dist.toFixed(1)}km` : ''}</div>
-        <div style="display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:${statusBg};color:${statusColor};">${statusLabel}</div>
-      `;
-      const btnRow = document.createElement('div');
-      btnRow.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
-      const btn = document.createElement('button');
-      btn.textContent = '詳細を開く';
-      btn.style.cssText = 'flex:1;padding:6px 10px;border:none;border-radius:6px;background:#0B4EA2;color:#fff;font-size:12px;font-weight:600;cursor:pointer;';
-      btn.onclick = () => onOpenRef.current(sh.sticker);
-      btnRow.appendChild(btn);
-      if (sh.mapUrl) {
-        const gbtn = document.createElement('button');
-        gbtn.textContent = 'Googleマップで開く';
-        gbtn.style.cssText = 'flex:1;padding:6px 10px;border:1px solid #0B4EA2;border-radius:6px;background:#fff;color:#0B4EA2;font-size:12px;font-weight:600;cursor:pointer;';
-        gbtn.onclick = () => window.open(sh.mapUrl, '_blank');
-        btnRow.appendChild(gbtn);
-      }
-      content.appendChild(btnRow);
-      marker.bindPopup(content);
-      marker.on('click', () => setSelectedId(sh.id));
-    });
-  }, [filtered, leafletReady, myPos, highlightKm]);
-
-  useEffect(() => {
-    if (!leafletReady || !mapObjRef.current || !myPos) return;
-    const L = window.L;
-    if (myMarkerRef.current) { myMarkerRef.current.remove(); }
-    const icon = L.divIcon({
-      className: '',
-      html: `<div style="width:16px;height:16px;border-radius:50%;background:#2E7D32;border:3px solid #fff;box-shadow:0 0 0 4px rgba(46,125,50,0.25);"></div>`,
-      iconSize: [16, 16], iconAnchor: [8, 8],
-    });
-    myMarkerRef.current = L.marker([myPos.lat, myPos.lng], { icon, zIndexOffset: 1000 }).addTo(mapObjRef.current);
-    myMarkerRef.current.bindPopup('現在地');
-    mapObjRef.current.setView([myPos.lat, myPos.lng], 11, { animate: true });
-  }, [myPos, leafletReady]);
-
-  const flyTo = (sh) => {
-    setSelectedId(sh.id);
-    if (mapObjRef.current) mapObjRef.current.setView([sh.lat, sh.lng], 10, { animate: true });
-  };
-
   return (
-    <div className="view" style={{ maxWidth: 1200 }}>
-      <header className="view-header">
-        <div>
-          <div className="eyebrow">SHOP MAP</div>
-          <h1>販売店マップ</h1>
-        </div>
-        <button className="btn-secondary" onClick={locate} disabled={locLoading}>
-          <Locate size={15} /> {locLoading ? '取得中…' : '現在地を表示'}
-        </button>
-      </header>
-      {locError && <div style={{ fontSize: 12, color: '#C0392B', marginBottom: 10 }}>{locError}</div>}
-      {nearbyAlert && (
-        <div className="panel" style={{ padding: 14, marginBottom: 10, border: '1px solid #2E9E4F', background: '#EAF7EE', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <Bell size={16} color="#1E7A38" />
-          <div style={{ flex: 1, fontSize: 13, color: '#1E7A38', minWidth: 180 }}>
-            近くに訪問可能距離の店舗（国道{nearbyAlert.sticker.routeNumber}号 {nearbyAlert.name || '販売店'}）があります。
-          </div>
-          {nearbyAlert.mapUrl && (
-            <button className="btn-secondary" onClick={() => window.open(nearbyAlert.mapUrl, '_blank')}>Googleマップを表示</button>
-          )}
-          <button className="icon-btn" onClick={() => setNearbyAlert(null)}><X size={15} /></button>
-        </div>
-      )}
-
-      <div className="map-layout">
-        <div className="map-sidebar panel">
-          <div style={{ padding: 12, borderBottom: '1px solid var(--line)' }}>
-            <div className="search-box" style={{ marginBottom: 8 }}>
-              <Search size={15} color="var(--muted)" />
-              <input placeholder="販売店・国道番号で検索" value={query} onChange={e => setQuery(e.target.value)} />
-            </div>
-            <select value={filter} onChange={e => setFilter(e.target.value)} style={{ width: '100%', marginBottom: 8 }}>
-              <option value="all">すべて表示</option>
-              <option value="acquired">取得済みのみ</option>
-              <option value="visited">訪問のみ</option>
-              <option value="pending">未取得のみ</option>
-              <option value="favorite">お気に入りのみ</option>
-            </select>
-            {myPos && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                <select value={sortMode} onChange={e => setSortMode(e.target.value)} style={{ flex: 1 }}>
-                  <option value="default">並び順：通常</option>
-                  <option value="distance">並び順：現在地から近い順</option>
-                </select>
-                <select value={radius} onChange={e => setRadius(e.target.value)} style={{ flex: 1 }}>
-                  <option value="all">絞り込み：すべて</option>
-                  <option value="10">10km以内のみ</option>
-                  <option value="30">30km以内のみ</option>
-                  <option value="50">50km以内のみ</option>
-                </select>
-              </div>
-            )}
-            {myPos && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>近くを強調表示：</span>
-                <select value={highlightKm} onChange={e => setHighlightKm(e.target.value)} style={{ flex: 1 }}>
-                  <option value="5">5km以内</option>
-                  <option value="10">10km以内</option>
-                  <option value="20">20km以内</option>
-                  <option value="30">30km以内</option>
-                  <option value="50">50km以内</option>
-                </select>
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 12, marginTop: 2, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
-              <span><i className="dot" style={{ background: '#0B4EA2' }} /> 取得済み</span>
-              <span><i className="dot" style={{ background: '#8E44AD' }} /> 訪問のみ</span>
-              <span><i className="dot" style={{ background: '#B9BDC6' }} /> 未取得</span>
-              {myPos && <span><i className="dot" style={{ background: '#2E7D32' }} /> 現在地</span>}
-              {myPos && <span><i className="dot" style={{ background: '#fff', border: '2px solid #2E9E4F' }} /> 近くの店舗</span>}
-            </div>
-          </div>
-          <div style={{ overflowY: 'auto', flex: 1 }}>
-            {filtered.length === 0 && <div style={{ padding: 16, fontSize: 13, color: 'var(--muted)' }}>座標(緯度・経度)が登録された販売店がありません。詳細編集画面から登録してください。</div>}
-            {filtered.map(sh => (
-              <div key={sh.id} className={`map-list-item ${sh.id === selectedId ? 'active' : ''}`} onClick={() => flyTo(sh)}>
-                <span className="dot" style={{ background: sh.sticker.acquired ? '#0B4EA2' : (sh.sticker.visitedOnly ? '#8E44AD' : '#B9BDC6') }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 500, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>国道{sh.sticker.routeNumber}号 ・ {sh.name || '販売店未登録'}</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>{sh.prefecture}{typeof sh._dist === 'number' ? ` ・ 約${sh._dist.toFixed(1)}km` : ''}</div>
-                </div>
-                {sh.sticker.favorite && <Star size={13} fill="var(--warm)" color="var(--warm)" />}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="map-main">
-          <div ref={mapDivRef} className="leaflet-holder">
-            {!leafletReady && <div style={{ padding: 20, color: 'var(--muted)', fontSize: 13 }}>地図を読み込み中…</div>}
-          </div>
-
-          {selected && selectedSticker && (
-            <div className="panel map-detail">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                <div>
-                  <div style={{ fontWeight: 600 }}>国道{selectedSticker.routeNumber}号 {selectedSticker.name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{selected.name} ・ {selected.address}</div>
-                </div>
-                <button className="icon-btn" onClick={() => setSelectedId(null)}><X size={16} /></button>
-              </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                <button className="btn-secondary" onClick={() => onOpen(selectedSticker)}>詳細を編集</button>
-                <a className="btn-secondary" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selected.address || selected.name)}`} target="_blank" rel="noreferrer">
-                  <Navigation size={14} /> Googleナビ起動
-                </a>
-                <div className="seg">
-                  <button className={embedMode === 'google' ? 'active' : ''} onClick={() => setEmbedMode('google')}>GoogleMap</button>
-                  <button className={embedMode === 'osm' ? 'active' : ''} onClick={() => setEmbedMode('osm')}>OpenStreetMap</button>
-                </div>
-              </div>
-              <div className="map-embed">
-                {embedMode === 'google' ? (
-                  <iframe title="google-map" src={`https://maps.google.com/maps?q=${encodeURIComponent(selected.address || selected.name)}&output=embed`} loading="lazy" />
-                ) : (
-                  <iframe title="osm-map" src={`https://www.openstreetmap.org/export/embed.html?bbox=${selected.lng - 0.01}%2C${selected.lat - 0.008}%2C${selected.lng + 0.01}%2C${selected.lat + 0.008}&marker=${selected.lat}%2C${selected.lng}`} loading="lazy" />
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+    <NationalMapView
+      stickers={stickers}
+      shops={shops}
+      onOpen={onOpen}
+      mapStylePref={mapStylePref}
+      mapHomePref={mapHomePref}
+      variant="shop"
+    />
   );
 }
 
@@ -1471,7 +1239,7 @@ function MapView({ stickers, shops, onOpen, mapStylePref, mapHomePref }) {
 /*  全国国道マップ                                                      */
 /* ------------------------------------------------------------------ */
 
-function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref }) {
+function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, variant = "national" }) {
   const leafletReady = useLeaflet();
   const mapDivRef = useRef(null);
   const mapObjRef = useRef(null);
@@ -1480,6 +1248,13 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
   const [region, setRegion] = useState('all');
   const [prefecture, setPrefecture] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [convenienceOnly, setConvenienceOnly] = useState(false);
+  const [query, setQuery] = useState('');
+  const [sortMode, setSortMode] = useState('default');
+  const [radiusKm, setRadiusKm] = useState('all');
+  const markersRef = useRef({});
+  const [openAtOrBefore, setOpenAtOrBefore] = useState('');
+  const [closeAtOrAfter, setCloseAtOrAfter] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [highlightKm, setHighlightKm] = useState('10');
   const onOpenRef = useRef(onOpen);
@@ -1528,8 +1303,26 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
     if (statusFilter === 'acquired') list = list.filter(sh => sh.sticker.acquired);
     if (statusFilter === 'visited') list = list.filter(sh => sh.sticker.visitedOnly && !sh.sticker.acquired);
     if (statusFilter === 'pending') list = list.filter(sh => !sh.sticker.acquired);
+    if (convenienceOnly) list = list.filter(sh => isConvenienceStore(sh.name));
+    if (openAtOrBefore) {
+      const t = timeToMin(openAtOrBefore);
+      list = list.filter(sh => { const bh = parseBusinessHours(sh.businessHours); return bh && bh.openMin <= t; });
+    }
+    if (closeAtOrAfter) {
+      const t = timeToMin(closeAtOrAfter);
+      list = list.filter(sh => { const bh = parseBusinessHours(sh.businessHours); return bh && bh.closeMin >= t; });
+    }
+    const q = query.trim().toLowerCase();
+    if (q) {
+      list = list.filter(sh =>
+        String(sh.sticker.routeNumber).includes(q) ||
+        (sh.sticker.name || '').toLowerCase().includes(q) ||
+        (sh.name || '').toLowerCase().includes(q) ||
+        (sh.prefecture || '').toLowerCase().includes(q)
+      );
+    }
     return list;
-  }, [joined, region, prefecture, statusFilter]);
+  }, [joined, region, prefecture, statusFilter, convenienceOnly, openAtOrBefore, closeAtOrAfter, query]);
 
   /* 同じ販売店（同じ店名＋都道府県）を1グループにまとめ、扱っている全ステッカーを保持する */
   const grouped = useMemo(() => {
@@ -1537,16 +1330,18 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
     filtered.forEach(sh => {
       const key = `${sh.name || '（店名未登録）'}|${sh.prefecture || ''}`;
       if (!map.has(key)) {
-        map.set(key, { lat: sh.lat, lng: sh.lng, name: sh.name, prefecture: sh.prefecture, mapUrl: sh.mapUrl, items: [] });
+        map.set(key, { key, lat: sh.lat, lng: sh.lng, name: sh.name, prefecture: sh.prefecture, mapUrl: sh.mapUrl, items: [] });
       }
       map.get(key).items.push(sh);
     });
-    const list = Array.from(map.values());
+    let list = Array.from(map.values());
     if (myPos) {
       list.forEach(g => { g.dist = distanceKm(myPos.lat, myPos.lng, g.lat, g.lng); });
+      if (radiusKm !== 'all') list = list.filter(g => g.dist <= Number(radiusKm));
+      if (sortMode === 'distance') list = [...list].sort((a, b) => a.dist - b.dist);
     }
     return list;
-  }, [filtered, myPos]);
+  }, [filtered, myPos, radiusKm, sortMode]);
 
   useEffect(() => {
     if (!leafletReady || !mapDivRef.current || mapObjRef.current) return;
@@ -1569,6 +1364,7 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
     if (!leafletReady || !mapObjRef.current || !layerRef.current) return;
     const L = window.L;
     layerRef.current.clearLayers();
+    markersRef.current = {};
     grouped.forEach(group => {
       const items = group.items;
       const isMulti = items.length > 1;
@@ -1576,7 +1372,11 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
       const anyAcquired = items.some(sh => sh.sticker.acquired);
       const allAcquired = items.every(sh => sh.sticker.acquired);
       const anyVisitedOnly = items.some(sh => sh.sticker.visitedOnly && !sh.sticker.acquired);
-      const fill = isSelected ? '#C0392B' : (allAcquired ? '#0B4EA2' : (anyAcquired ? '#5B8FD1' : (anyVisitedOnly ? '#8E44AD' : '#B9BDC6')));
+      const now = new Date();
+      const nowMin = now.getHours() * 60 + now.getMinutes();
+      const bh = parseBusinessHours(group.items[0]?.businessHours || '');
+      const isClosed = bh ? (nowMin < bh.openMin || nowMin >= bh.closeMin) : false;
+      const fill = isSelected ? '#C0392B' : isClosed ? '#E74C3C' : (allAcquired ? '#0B4EA2' : (anyAcquired ? '#5B8FD1' : (anyVisitedOnly ? '#8E44AD' : '#B9BDC6')));
       const isNear = myPos && typeof group.dist === 'number' && group.dist <= Number(highlightKm);
       const size = (isSelected ? 36 : 30) + (isNear ? 4 : 0);
 
@@ -1615,6 +1415,7 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
         });
       }
       const marker = L.marker([group.lat, group.lng], { icon }).addTo(layerRef.current);
+      markersRef.current[group.key] = marker;
       const content = document.createElement('div');
       content.style.fontFamily = "'Noto Sans JP', sans-serif";
       content.style.fontSize = '13px';
@@ -1659,12 +1460,25 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
 
   const acquiredCount = new Set(filtered.filter(sh => sh.sticker.acquired).map(sh => sh.sticker.id)).size;
 
+  const focusGroup = (g) => {
+    const m = markersRef.current[g.key];
+    const map = mapObjRef.current;
+    if (!m || !map) return;
+    const cl = layerRef.current;
+    if (cl && cl.zoomToShowLayer) {
+      cl.zoomToShowLayer(m, () => m.openPopup());
+    } else {
+      map.setView([g.lat, g.lng], 13);
+      m.openPopup();
+    }
+  };
+
   return (
     <div className="view" style={{ maxWidth: 1200 }}>
       <header className="view-header">
         <div>
-          <div className="eyebrow">NATIONAL MAP</div>
-          <h1>全国国道マップ</h1>
+          <div className="eyebrow">{variant === 'shop' ? 'SHOP MAP' : 'NATIONAL MAP'}</div>
+          <h1>{variant === 'shop' ? '販売店マップ' : '全国国道マップ'}</h1>
         </div>
         <button className="btn-secondary" onClick={locate} disabled={locLoading}>
           <Locate size={15} /> {locLoading ? '取得中…' : '現在地を表示'}
@@ -1676,6 +1490,9 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
           <Bell size={16} color="#1E7A38" />
           <div style={{ flex: 1, fontSize: 13, color: '#1E7A38', minWidth: 180 }}>
             近くに訪問可能距離の店舗（国道{nearbyAlert.sticker.routeNumber}号 {nearbyAlert.name || '販売店'}）があります。
+            {nearbyAlert.businessHours && <span style={{ display: 'block', fontSize: 12, color: '#1E7A38', marginTop: 2 }}>
+              営業時間：{nearbyAlert.businessHours}{(() => { const bh = parseBusinessHours(nearbyAlert.businessHours); if (!bh) return ''; const h = String(Math.floor((bh.closeMin % (24*60)) / 60)).padStart(2,'0'); const m = String(bh.closeMin % 60).padStart(2,'0'); return `（閉店 ${h}:${m}）`; })()}
+            </span>}
           </div>
           {nearbyAlert.mapUrl && (
             <button className="btn-secondary" onClick={() => window.open(nearbyAlert.mapUrl, '_blank')}>Googleマップを表示</button>
@@ -1685,6 +1502,27 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
       )}
 
       <div className="toolbar panel" style={{ marginBottom: 14 }}>
+        <input
+          type="search"
+          placeholder="店名・国道番号・県で検索"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          style={{ minWidth: 200 }}
+        />
+        {myPos && (
+          <select value={sortMode} onChange={e => setSortMode(e.target.value)}>
+            <option value="default">並び順：通常</option>
+            <option value="distance">並び順：現在地から近い順</option>
+          </select>
+        )}
+        {myPos && (
+          <select value={radiusKm} onChange={e => setRadiusKm(e.target.value)}>
+            <option value="all">距離：すべて</option>
+            <option value="10">現在地から10km以内</option>
+            <option value="30">現在地から30km以内</option>
+            <option value="50">現在地から50km以内</option>
+          </select>
+        )}
         <select value={region} onChange={e => { setRegion(e.target.value); setPrefecture('all'); }}>
           <option value="all">地域：すべて</option>
           {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
@@ -1699,6 +1537,19 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
           <option value="visited">訪問のみ</option>
           <option value="pending">未取得のみ</option>
         </select>
+        <label className="chk" style={{ fontSize: 13 }}>
+          <input type="checkbox" checked={convenienceOnly} onChange={e => setConvenienceOnly(e.target.checked)} /> コンビニのみ
+        </label>
+        <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+          開店
+          <input type="time" value={openAtOrBefore} onChange={e => setOpenAtOrBefore(e.target.value)} style={{ width: 100 }} />
+          までに
+        </label>
+        <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+          閉店
+          <input type="time" value={closeAtOrAfter} onChange={e => setCloseAtOrAfter(e.target.value)} style={{ width: 100 }} />
+          以降
+        </label>
         {myPos && (
           <select value={highlightKm} onChange={e => setHighlightKm(e.target.value)}>
             <option value="5">現在地から5km以内を強調</option>
@@ -1713,6 +1564,7 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
           <span><i className="dot" style={{ background: '#8E44AD' }} /> 訪問のみ</span>
           <span><i className="dot" style={{ background: '#B9BDC6' }} /> 未取得</span>
           <span><i className="dot" style={{ background: '#C0392B' }} /> 選択中</span>
+          <span><i className="dot" style={{ background: '#E74C3C' }} /> 休業中（営業時間外）</span>
           {myPos && <span><i className="dot" style={{ background: '#2E7D32' }} /> 現在地</span>}
           {myPos && <span><i className="dot" style={{ background: '#fff', border: '2px solid #2E9E4F' }} /> 近くの店舗</span>}
         </div>
@@ -1720,7 +1572,38 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref })
 
       <div style={{ fontSize: 12, color: 'var(--muted)', margin: '0 2px 10px' }}>
         表示中 {filtered.length} 件（うち取得済みステッカー {acquiredCount} 件）
+        {myPos && ` ・ 店舗 ${grouped.length} 件`}
       </div>
+
+      {grouped.length > 0 && (
+        <div className="panel" style={{ marginBottom: 12, maxHeight: 240, overflowY: 'auto' }}>
+          {grouped.slice(0, 200).map(g => {
+            const isMulti = g.items.length > 1;
+            return (
+              <div
+                key={g.key}
+                onClick={() => focusGroup(g)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 13 }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {g.name || '販売店未登録'}
+                    {isMulti && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--muted)' }}>（{g.items.length}路線）</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    {g.prefecture || ''}
+                    {' ・ 国道 '}{g.items.map(sh => sh.sticker.routeNumber).sort((a, b) => a - b).join('・')}
+                    {typeof g.dist === 'number' && ` ・ 約${g.dist.toFixed(1)}km`}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {grouped.length > 200 && (
+            <div style={{ padding: 8, fontSize: 11, color: 'var(--muted)', textAlign: 'center' }}>上位200件のみ表示しています。絞り込みで件数を減らしてください。</div>
+          )}
+        </div>
+      )}
 
       <div ref={mapDivRef} className="leaflet-holder" style={{ height: 560 }}>
         {!leafletReady && <div style={{ padding: 20, color: 'var(--muted)', fontSize: 13 }}>地図を読み込み中…</div>}
@@ -1800,6 +1683,136 @@ function AlbumView({ stickers, shops, onOpen }) {
 /* ------------------------------------------------------------------ */
 /*  訪問予定リスト                                                      */
 /* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/*  国道ステッカーコレクションファイル（公式台帳風の一覧）                */
+/* ------------------------------------------------------------------ */
+
+function CollectionFileView({ stickers, shops, onOpen }) {
+  const [regionFilter, setRegionFilter] = useState('all');
+
+  const shopById = useMemo(() => {
+    const m = new Map();
+    shops.forEach(sh => m.set(sh.id, sh));
+    return m;
+  }, [shops]);
+
+  const cells = useMemo(() => {
+    const byNumber = new Map();
+    stickers.forEach(s => { byNumber.set(s.routeNumber, s); });
+    const maxNumber = stickers.reduce((m, s) => Math.max(m, s.routeNumber), 0);
+    const list = [];
+    for (let n = 1; n <= maxNumber; n++) {
+      const s = byNumber.get(n);
+      if (!s) {
+        list.push({ n, status: 'missing', sticker: null });
+      } else {
+        list.push({ n, status: s.acquired ? 'acquired' : 'pending', sticker: s });
+      }
+    }
+    return list;
+  }, [stickers]);
+
+  const filteredCells = useMemo(() => {
+    if (regionFilter === 'all') return cells;
+    return cells.filter(c => c.sticker && c.sticker.region === regionFilter);
+  }, [cells, regionFilter]);
+
+  const acquiredCount = cells.filter(c => c.status === 'acquired').length;
+  const missingCount = cells.filter(c => c.status === 'missing').length;
+  const totalReal = cells.length - missingCount;
+
+  const PER_PAGE = 24; // 縦4行 × 横6列
+  const pages = useMemo(() => {
+    const arr = [];
+    for (let i = 0; i < filteredCells.length; i += PER_PAGE) arr.push(filteredCells.slice(i, i + PER_PAGE));
+    return arr;
+  }, [filteredCells]);
+
+  const [pageIndex, setPageIndex] = useState(0);
+  const [flipDir, setFlipDir] = useState(null); // 'next' | 'prev' | null
+  const [flipping, setFlipping] = useState(false);
+  useEffect(() => { setPageIndex(0); }, [regionFilter]);
+  useEffect(() => { if (pageIndex > pages.length - 1) setPageIndex(Math.max(0, pages.length - 1)); }, [pages.length, pageIndex]);
+
+  const goTo = (nextIndex, dir) => {
+    if (flipping || nextIndex < 0 || nextIndex > pages.length - 1) return;
+    setFlipDir(dir);
+    setFlipping(true);
+    setTimeout(() => {
+      setPageIndex(nextIndex);
+      setTimeout(() => { setFlipping(false); setFlipDir(null); }, 380);
+    }, 10);
+  };
+
+  const renderPage = (page, pi) => (
+    <div className="binder-page">
+      <div className="binder-page-head">第{pi + 1}ページ　（No.{page[0].n}〜No.{page[page.length - 1].n}）</div>
+      <div className="binder-grid">
+        {page.map(c => {
+          const shop = c.sticker?.acquiredShopId ? shopById.get(c.sticker.acquiredShopId) : null;
+          return (
+            <div
+              key={c.n}
+              className={`binder-cell ${c.status}`}
+              onClick={() => c.sticker && onOpen(c.sticker)}
+              title={c.sticker ? c.sticker.name : `国道${c.n}号（欠番）`}
+            >
+              <RouteBadge number={c.n} status={c.status} size={48} />
+              {c.status === 'acquired' && (
+                <div className="binder-cell-info">
+                  <div className="line date">{c.sticker.acquiredDate || '\u00A0'}</div>
+                  <div className="line shop">{shop?.name || '\u00A0'}</div>
+                  <div className="line kaido">{c.sticker.notes || '\u00A0'}</div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {Array.from({ length: PER_PAGE - page.length }).map((_, i) => (
+          <div key={`empty${i}`} className="binder-cell empty" />
+        ))}
+      </div>
+    </div>
+  );
+
+  const currentPage = pages[pageIndex];
+
+  return (
+    <div className="view">
+      <header className="view-header">
+        <div>
+          <div className="eyebrow">COLLECTION FILE</div>
+          <h1>国道ステッカーコレクションファイル</h1>
+        </div>
+        <select value={regionFilter} onChange={e => setRegionFilter(e.target.value)}>
+          <option value="all">地域：すべて</option>
+          {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+      </header>
+
+      <div className="panel" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}>
+        <span><i className="dot" style={{ background: '#0B4EA2' }} /> 取得済み（{acquiredCount}/{totalReal}）</span>
+        <span><i className="dot" style={{ background: '#B9BDC6' }} /> 未取得</span>
+        <span><i className="dot" style={{ background: '#1A1D22' }} /> 欠番（{missingCount}）</span>
+      </div>
+
+      {currentPage && (
+        <div className="binder-flip-stage">
+          <div className={`binder-flip-page ${flipping ? (flipDir === 'next' ? 'flip-next' : 'flip-prev') : ''}`}>
+            {renderPage(currentPage, pageIndex)}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16, marginTop: 14 }}>
+        <button className="btn-secondary" onClick={() => goTo(pageIndex - 1, 'prev')} disabled={pageIndex === 0 || flipping}>← 前のページ</button>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>{pageIndex + 1} / {pages.length} ページ</span>
+        <button className="btn-secondary" onClick={() => goTo(pageIndex + 1, 'next')} disabled={pageIndex === pages.length - 1 || flipping}>次のページ →</button>
+      </div>
+    </div>
+  );
+}
 
 function VisitPlanView({ stickers, shops, onOpen, onToggleWantToVisit, onToggleRevisit, visitSortPref, setVisitSortPref }) {
   const [query, setQuery] = useState('');
@@ -2474,6 +2487,24 @@ textarea { resize: vertical; }
 .map-list-item.active { background: #E4F0FF; }
 .chip-toggle { flex-shrink: 0; font-size: 11px; font-weight: 600; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
 .chip-toggle.on { background: #0B4EA2; color: #fff; border-color: #0B4EA2; }
+
+.binder-page { background: #2B2E33; border-radius: 16px; padding: 18px; margin-bottom: 22px; box-shadow: 0 3px 10px rgba(0,0,0,0.25); }
+.binder-page-head { font-size: 12px; font-weight: 700; color: #E4E6EA; margin-bottom: 12px; letter-spacing: 1px; }
+.binder-grid { display: flex; flex-wrap: wrap; background: #1D2024; border-radius: 8px; padding: 8px; }
+.binder-cell { width: 16.6666%; box-sizing: border-box; padding: 6px; display: flex; flex-direction: column; align-items: center; }
+.binder-cell.empty { visibility: hidden; }
+.binder-cell:not(.empty) { cursor: pointer; }
+.binder-cell-inner, .binder-cell > svg { background: #fff; border-radius: 8px; }
+.binder-cell-info { width: 100%; margin-top: 4px; background: #fff; border-radius: 0 0 6px 6px; padding: 3px 4px 5px; text-align: center; }
+.binder-cell .line { font-size: 9px; line-height: 1.35; color: #444; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.binder-cell .line.date { color: #0B4EA2; font-weight: 700; }
+.binder-cell .line.kaido { color: #9a6b00; }
+.binder-cell > svg { padding: 4px; }
+
+.binder-flip-stage { perspective: 1800px; }
+.binder-flip-page { transform-origin: left center; transform-style: preserve-3d; transition: transform 0.38s ease, box-shadow 0.38s ease; }
+.binder-flip-page.flip-next { transform: rotateY(-18deg) scale(0.97); box-shadow: -20px 10px 30px rgba(0,0,0,0.35); }
+.binder-flip-page.flip-prev { transform: rotateY(18deg) scale(0.97); box-shadow: 20px 10px 30px rgba(0,0,0,0.35); }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; flex-shrink: 0; }
 .map-main { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .leaflet-holder { flex: 1; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); min-height: 260px; }
