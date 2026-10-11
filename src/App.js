@@ -1269,15 +1269,29 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
   const routeNumbers = useMemo(() => Array.from(new Set(stickers.map(s => s.routeNumber))).sort((a, b) => a - b), [stickers]);
 
   /* 路線データ（OpenStreetMap）を取得：国道番号 n の路線を線の配列として返す */
+  const OVERPASS_ENDPOINTS = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+  ];
   const fetchRouteLines = async (n) => {
     const q = `[out:json][timeout:25];relation["route"="road"]["network"="JP:national"]["ref"="${n}"];out geom;`;
-    const res = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'data=' + encodeURIComponent(q),
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const json = await res.json();
+    let lastErr = '';
+    let json = null;
+    for (const url of OVERPASS_ENDPOINTS) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'data=' + encodeURIComponent(q),
+        });
+        if (!res.ok) { lastErr = `${url} HTTP ${res.status}`; continue; }
+        json = await res.json();
+        break;
+      } catch (e) {
+        lastErr = `${url} ${e && e.message ? e.message : '接続エラー'}`;
+      }
+    }
+    if (!json) throw new Error(lastErr || '接続できませんでした');
     const lines = [];
     (json.elements || []).forEach(rel => {
       (rel.members || []).forEach(m => {
@@ -1302,7 +1316,7 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
         if (lines.length === 0) setRouteError(`国道${routeNo}号の路線データが見つかりませんでした`);
         setRouteLines(lines);
       })
-      .catch(() => { if (!cancelled) setRouteError('路線データを取得できませんでした（通信環境を確認してください）'); })
+      .catch(e => { if (!cancelled) setRouteError(`路線データを取得できませんでした（${e && e.message ? e.message : '不明なエラー'}）`); })
       .finally(() => { if (!cancelled) setRouteLoading(false); });
     return () => { cancelled = true; };
   }, [routeNo]);
