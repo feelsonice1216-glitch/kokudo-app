@@ -619,10 +619,21 @@ export default function App() {
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
 
   const requestInstall = async () => {
-    if (!installPrompt) { showToast('この環境ではインストールできません（デプロイ後に利用可能）'); return; }
+    if (!installPrompt) return;
     installPrompt.prompt();
     await installPrompt.userChoice;
     setInstallPrompt(null);
+  };
+
+  /* ホーム画面から開いているか（追加済みか） */
+  const isStandalone = (typeof window !== 'undefined') &&
+    ((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true);
+  const isIOS = (typeof navigator !== 'undefined') && /iPhone|iPad|iPod/.test(navigator.userAgent);
+  /* 最新版を読み込み直す（URLに時刻を付けて、古い画面の再利用を避ける） */
+  const refreshApp = () => {
+    const u = new URL(window.location.href);
+    u.searchParams.set('v', String(Date.now()));
+    window.location.replace(u.toString());
   };
 
   const openEditor = (sticker) => {
@@ -936,6 +947,7 @@ export default function App() {
             onExportJSON={exportJSON} onExportCSV={exportCSV} onImport={importFile}
             onMergeMaster={mergeMasterData} onReset={resetData} onResetAcquisitions={resetAcquisitions}
             count={stickers.length} onInstall={requestInstall} canInstall={!!installPrompt}
+            isStandalone={isStandalone} isIOS={isIOS} onRefresh={refreshApp}
             darkMode={darkMode} onToggleDarkMode={() => setDarkMode(v => !v)}
             sortDefaultPref={sortDefaultPref} setSortDefaultPref={setSortDefaultPref}
             layoutDefaultPref={layoutDefaultPref} setLayoutDefaultPref={setLayoutDefaultPref}
@@ -1777,7 +1789,7 @@ function CollectionFileView({ stickers, shops, onOpen }) {
   }, [filteredCells]);
 
   const [pageIndex, setPageIndex] = useState(0);
-  const [openCellKey, setOpenCellKey] = useState(null);
+  const [infoCell, setInfoCell] = useState(null); // { sticker, shopName } | null
   const [flipDir, setFlipDir] = useState(null); // 'next' | 'prev' | null
   const [flipping, setFlipping] = useState(false);
   useEffect(() => { setPageIndex(0); }, [regionFilter]);
@@ -1805,7 +1817,7 @@ function CollectionFileView({ stickers, shops, onOpen }) {
               className={`binder-cell ${c.status}`}
               onClick={() => {
                 if (!c.sticker) return;
-                if (c.status === 'acquired') { setOpenCellKey(openCellKey === c.n ? null : c.n); return; }
+                if (c.status === 'acquired') { setInfoCell({ sticker: c.sticker, shopName: shop?.name || '' }); return; }
                 onOpen(c.sticker);
               }}
               title={c.sticker ? c.sticker.name : `国道${c.n}号（欠番）`}
@@ -1816,13 +1828,10 @@ function CollectionFileView({ stickers, shops, onOpen }) {
                   <div
                     className="line date"
                     style={{ cursor: 'pointer', textDecoration: 'underline dotted', whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' }}
-                    onClick={e => { e.stopPropagation(); setOpenCellKey(openCellKey === c.n ? null : c.n); }}
+                    onClick={e => { e.stopPropagation(); setInfoCell({ sticker: c.sticker, shopName: shop?.name || '' }); }}
                   >
                     {fmtAcqDateShort(c.sticker.acquiredDate)}
                   </div>
-                  {openCellKey === c.n && (
-                    <div className="line shop">{shop?.name || '取得店舗未入力'}</div>
-                  )}
                 </div>
               )}
             </div>
@@ -1869,6 +1878,33 @@ function CollectionFileView({ stickers, shops, onOpen }) {
         <span style={{ fontSize: 13, color: 'var(--muted)' }}>{pageIndex + 1} / {pages.length} ページ</span>
         <button className="btn-secondary" onClick={() => goTo(pageIndex + 1, 'next')} disabled={pageIndex === pages.length - 1 || flipping}>次のページ →</button>
       </div>
+
+      {infoCell && (
+        <div style={overlayStyle} onClick={() => setInfoCell(null)}>
+          <div
+            className="panel"
+            onClick={e => e.stopPropagation()}
+            style={{ width: 'min(92vw, 360px)', padding: 20, borderRadius: 14, background: 'var(--panel)' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>ステッカー情報</div>
+              <button className="icon-btn" onClick={() => setInfoCell(null)}><X size={16} /></button>
+            </div>
+            <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 12px', margin: 0, fontSize: 13 }}>
+              <dt style={{ color: 'var(--muted)' }}>ステッカー名</dt>
+              <dd style={{ margin: 0, fontWeight: 600 }}>国道{infoCell.sticker.routeNumber}号 {infoCell.sticker.name || ''}</dd>
+              <dt style={{ color: 'var(--muted)' }}>地域</dt>
+              <dd style={{ margin: 0 }}>{infoCell.sticker.region || '未入力'}</dd>
+              <dt style={{ color: 'var(--muted)' }}>取得日</dt>
+              <dd style={{ margin: 0 }}>{infoCell.sticker.acquiredDate || '未入力'}</dd>
+              <dt style={{ color: 'var(--muted)' }}>取得店</dt>
+              <dd style={{ margin: 0 }}>{infoCell.shopName || '未入力'}</dd>
+              <dt style={{ color: 'var(--muted)' }}>メモ</dt>
+              <dd style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{infoCell.sticker.memo || '未入力'}</dd>
+            </dl>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2246,7 +2282,7 @@ function StatsView({ stats, stickers, shops, almostEnabled, chartTypePref }) {
 /* ------------------------------------------------------------------ */
 
 function SettingsView({
-  onExportJSON, onExportCSV, onImport, onMergeMaster, onReset, onResetAcquisitions, count, onInstall, canInstall, darkMode, onToggleDarkMode,
+  onExportJSON, onExportCSV, onImport, onMergeMaster, onReset, onResetAcquisitions, count, onInstall, canInstall, isStandalone, isIOS, onRefresh, darkMode, onToggleDarkMode,
   sortDefaultPref, setSortDefaultPref, layoutDefaultPref, setLayoutDefaultPref, cardSizePref, setCardSizePref,
   pageSizePref, setPageSizePref, reminderDaysPref, setReminderDaysPref, almostEnabledPref, setAlmostEnabledPref,
   requireTypedConfirmPref, setRequireTypedConfirmPref, themeColorPref, setThemeColorPref, fontSizePref, setFontSizePref,
@@ -2262,11 +2298,29 @@ function SettingsView({
       </header>
 
       <div className="panel" style={{ padding: 20, marginBottom: 16 }}>
-        <div className="panel-title">ホーム画面に追加（PWA）</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)' }}>
-          {canInstall ? 'お使いの端末はインストールに対応しています。' : '実際にご自身のドメインへデプロイした後、対応ブラウザでこのボタンからホーム画面に追加できます。'}
-        </p>
-        <button className="btn-secondary" onClick={onInstall}><Download size={15} /> ホーム画面に追加</button>
+        <div className="panel-title">ホーム画面に追加・更新</div>
+        {isStandalone ? (
+          <>
+            <p style={{ fontSize: 13, color: 'var(--muted)' }}>
+              ホーム画面に追加済みです。アプリの内容を最新版に更新できます。
+            </p>
+            <button className="btn-secondary" onClick={onRefresh}><RotateCcw size={15} /> 最新版に更新</button>
+          </>
+        ) : canInstall ? (
+          <>
+            <p style={{ fontSize: 13, color: 'var(--muted)' }}>このままボタンを押すと、ホーム画面に追加できます。</p>
+            <button className="btn-secondary" onClick={onInstall}><Download size={15} /> ホーム画面に追加</button>
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: 13, color: 'var(--muted)' }}>
+              {isIOS
+                ? 'iPhone・iPadでは、Safariの画面下の「共有」ボタン（□に↑）→「ホーム画面に追加」で追加できます。'
+                : 'ブラウザのメニューから「ホーム画面に追加」（またはアプリのインストール）を選ぶと追加できます。'}
+            </p>
+            <button className="btn-secondary" onClick={onRefresh}><RotateCcw size={15} /> 最新版を読み込む</button>
+          </>
+        )}
       </div>
 
       <div className="panel" style={{ padding: 20, marginBottom: 16 }}>
