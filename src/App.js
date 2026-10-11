@@ -1257,8 +1257,87 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
   const [closeAtOrAfter, setCloseAtOrAfter] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [highlightKm, setHighlightKm] = useState('10');
+  const [routeNo, setRouteNo] = useState('none');
+  const [routeLines, setRouteLines] = useState(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState('');
+  const [corridorKm, setCorridorKm] = useState('1');
+  const routeLayerRef = useRef(null);
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
+
+  const routeNumbers = useMemo(() => Array.from(new Set(stickers.map(s => s.routeNumber))).sort((a, b) => a - b), [stickers]);
+
+  /* 路線データ（OpenStreetMap）を取得：国道番号 n の路線を線の配列として返す */
+  const fetchRouteLines = async (n) => {
+    const q = `[out:json][timeout:25];relation["route"="road"]["network"="JP:national"]["ref"="${n}"];out geom;`;
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(q),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    const lines = [];
+    (json.elements || []).forEach(rel => {
+      (rel.members || []).forEach(m => {
+        if (m.type === 'way' && Array.isArray(m.geometry) && m.geometry.length > 1) {
+          lines.push(m.geometry.map(p => [p.lat, p.lon]));
+        }
+      });
+    });
+    return lines;
+  };
+
+  /* 路線番号が変わったら路線データを取得 */
+  useEffect(() => {
+    if (routeNo === 'none') { setRouteLines(null); setRouteError(''); return; }
+    let cancelled = false;
+    setRouteLoading(true);
+    setRouteError('');
+    setRouteLines(null);
+    fetchRouteLines(routeNo)
+      .then(lines => {
+        if (cancelled) return;
+        if (lines.length === 0) setRouteError(`国道${routeNo}号の路線データが見つかりませんでした`);
+        setRouteLines(lines);
+      })
+      .catch(() => { if (!cancelled) setRouteError('路線データを取得できませんでした（通信環境を確認してください）'); })
+      .finally(() => { if (!cancelled) setRouteLoading(false); });
+    return () => { cancelled = true; };
+  }, [routeNo]);
+
+  /* 沿線（路線から指定km以内）の店舗IDを計算 */
+  const corridorIds = useMemo(() => {
+    const ids = new Set();
+    if (!routeLines || routeLines.length === 0) return ids;
+    const limitKm = Number(corridorKm) || 1;
+    const pts = [];
+    routeLines.forEach(l => l.forEach(p => pts.push(p)));
+    const lats = pts.map(p => p[0]), lngs = pts.map(p => p[1]);
+    const pad = limitKm / 111 + 0.01;
+    const bb = { minLat: Math.min(...lats) - pad, maxLat: Math.max(...lats) + pad, minLng: Math.min(...lngs) - pad, maxLng: Math.max(...lngs) + pad };
+    shops.forEach(sh => {
+      if (!sh.lat || !sh.lng) return;
+      if (sh.lat < bb.minLat || sh.lat > bb.maxLat || sh.lng < bb.minLng || sh.lng > bb.maxLng) return;
+      for (const p of pts) {
+        if (distanceKm(sh.lat, sh.lng, p[0], p[1]) <= limitKm) { ids.add(sh.id); break; }
+      }
+    });
+    return ids;
+  }, [routeLines, corridorKm, shops]);
+
+  /* 路線を地図に描画 */
+  useEffect(() => {
+    if (!leafletReady || !mapObjRef.current) return;
+    const L = window.L;
+    if (routeLayerRef.current) { routeLayerRef.current.remove(); routeLayerRef.current = null; }
+    if (!routeLines || routeLines.length === 0) return;
+    const group = L.featureGroup(routeLines.map(l => L.polyline(l, { color: '#C0392B', weight: 4, opacity: 0.85 })));
+    group.addTo(mapObjRef.current);
+    routeLayerRef.current = group;
+    try { mapObjRef.current.fitBounds(group.getBounds(), { padding: [30, 30] }); } catch (e) {}
+  }, [routeLines, leafletReady]);
 
   const prefectures = useMemo(() => Array.from(new Set(shops.map(sh => sh.prefecture).filter(Boolean))).sort(), [shops]);
 
@@ -1312,6 +1391,10 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
       const t = timeToMin(closeAtOrAfter);
       list = list.filter(sh => { const bh = parseBusinessHours(sh.businessHours); return bh && bh.closeMin >= t; });
     }
+    if (routeNo !== 'none' && routeLines) {
+      const n = Number(routeNo);
+      list = list.filter(sh => sh.sticker.routeNumber === n || corridorIds.has(sh.id));
+    }
     const q = query.trim().toLowerCase();
     if (q) {
       list = list.filter(sh =>
@@ -1322,7 +1405,7 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
       );
     }
     return list;
-  }, [joined, region, prefecture, statusFilter, convenienceOnly, openAtOrBefore, closeAtOrAfter, query]);
+  }, [joined, region, prefecture, statusFilter, convenienceOnly, openAtOrBefore, closeAtOrAfter, query, routeNo, routeLines, corridorIds]);
 
   /* 同じ販売店（同じ店名＋都道府県）を1グループにまとめ、扱っている全ステッカーを保持する */
   const grouped = useMemo(() => {
@@ -1448,7 +1531,8 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
           const st = sh.sticker.acquired ? { label: '取得済み', bg: '#E4F0FF', color: '#0B4EA2' }
             : (sh.sticker.visitedOnly ? { label: '訪問のみ', bg: '#F3E8FA', color: '#8E44AD' }
               : { label: '未取得', bg: '#F0F0EE', color: '#767b85' });
-          left.innerHTML = `<span style="font-weight:600;">国道${sh.sticker.routeNumber}号</span> ${sh.sticker.name || ''}<br/><span style="display:inline-block;margin-top:2px;font-size:10px;font-weight:600;padding:1px 7px;border-radius:999px;background:${st.bg};color:${st.color};">${st.label}</span>`;
+          const alongTag = (routeNo !== 'none' && sh.sticker.routeNumber !== Number(routeNo)) ? ' <span style="font-size:10px;color:#9a6b00;">（沿線）</span>' : '';
+          left.innerHTML = `<span style="font-weight:600;">国道${sh.sticker.routeNumber}号</span>${alongTag} ${sh.sticker.name || ''}<br/><span style="display:inline-block;margin-top:2px;font-size:10px;font-weight:600;padding:1px 7px;border-radius:999px;background:${st.bg};color:${st.color};">${st.label}</span>`;
           left.onclick = () => { setSelectedId(sh.sticker.id); onOpenRef.current(sh.sticker); };
           row.appendChild(left);
           content.appendChild(row);
@@ -1456,7 +1540,7 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
       marker.on('click', () => setSelectedId(items[0].sticker.id));
       marker.bindPopup(content);
     });
-  }, [grouped, leafletReady, selectedId, myPos, highlightKm]);
+  }, [grouped, leafletReady, selectedId, myPos, highlightKm, routeNo]);
 
   const acquiredCount = new Set(filtered.filter(sh => sh.sticker.acquired).map(sh => sh.sticker.id)).size;
 
@@ -1502,6 +1586,19 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
       )}
 
       <div className="toolbar panel" style={{ marginBottom: 14 }}>
+        <select value={routeNo} onChange={e => setRouteNo(e.target.value)}>
+          <option value="none">路線：指定しない</option>
+          {routeNumbers.map(n => <option key={n} value={n}>国道{n}号の路線を表示</option>)}
+        </select>
+        {routeNo !== 'none' && (
+          <select value={corridorKm} onChange={e => setCorridorKm(e.target.value)}>
+            <option value="0.5">沿線：路線から0.5km以内</option>
+            <option value="1">沿線：路線から1km以内</option>
+            <option value="2">沿線：路線から2km以内</option>
+          </select>
+        )}
+        {routeNo !== 'none' && routeLoading && <span style={{ fontSize: 12, color: 'var(--muted)' }}>路線を読み込み中…</span>}
+        {routeNo !== 'none' && routeError && <span style={{ fontSize: 12, color: '#C0392B' }}>{routeError}</span>}
         <input
           type="search"
           placeholder="店名・国道番号・県で検索"
