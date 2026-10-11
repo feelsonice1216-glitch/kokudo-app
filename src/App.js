@@ -1275,23 +1275,19 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
   ];
   const fetchRouteLines = async (n) => {
     const q = `[out:json][timeout:25];relation["route"="road"]["network"="JP:national"]["ref"="${n}"];out geom;`;
-    let lastErr = '';
+    const errors = [];
     let json = null;
-    for (const url of OVERPASS_ENDPOINTS) {
+    for (const base of OVERPASS_ENDPOINTS) {
       try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: 'data=' + encodeURIComponent(q),
-        });
-        if (!res.ok) { lastErr = `${url} HTTP ${res.status}`; continue; }
+        const res = await fetch(`${base}?data=${encodeURIComponent(q)}`);
+        if (!res.ok) { errors.push(`${base} HTTP ${res.status}`); continue; }
         json = await res.json();
         break;
       } catch (e) {
-        lastErr = `${url} ${e && e.message ? e.message : '接続エラー'}`;
+        errors.push(`${base} ${e && e.message ? e.message : '接続エラー'}`);
       }
     }
-    if (!json) throw new Error(lastErr || '接続できませんでした');
+    if (!json) throw new Error(errors.join(' / ') || '接続できませんでした');
     const lines = [];
     (json.elements || []).forEach(rel => {
       (rel.members || []).forEach(m => {
