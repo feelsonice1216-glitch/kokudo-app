@@ -1319,7 +1319,7 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
     if (statusFilter === 'acquired') list = list.filter(sh => sh.sticker.acquired);
     if (statusFilter === 'visited') list = list.filter(sh => sh.sticker.visitedOnly && !sh.sticker.acquired);
     if (statusFilter === 'pending') list = list.filter(sh => !sh.sticker.acquired);
-    if (convenienceOnly) list = list.filter(sh => isConvenienceStore(sh.name));
+    if (convenienceOnly) list = list.filter(sh => (sh.businessHours || '').includes('24時間'));
     if (openAtOrBefore !== '') {
       const t = Number(openAtOrBefore);
       list = list.filter(sh => { const bh = parseBusinessHours(sh.businessHours); return bh && bh.openMin <= t; });
@@ -1554,7 +1554,7 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
           <option value="pending">未取得のみ</option>
         </select>
         <label className="chk" style={{ fontSize: 13 }}>
-          <input type="checkbox" checked={convenienceOnly} onChange={e => setConvenienceOnly(e.target.checked)} /> コンビニのみ
+          <input type="checkbox" checked={convenienceOnly} onChange={e => setConvenienceOnly(e.target.checked)} /> 24時間営業
         </label>
         <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
           開店
@@ -1601,6 +1601,11 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
         <div className="panel" style={{ marginBottom: 12, maxHeight: 240, overflowY: 'auto' }}>
           {grouped.slice(0, 200).map(g => {
             const isMulti = g.items.length > 1;
+            const nowM = new Date().getHours() * 60 + new Date().getMinutes();
+            const bhL = parseBusinessHours(g.items[0]?.businessHours || '');
+            const closedNow = bhL ? (nowM < bhL.openMin || nowM >= bhL.closeMin) : false;
+            const nameColor = closedNow ? '#E74C3C' : 'var(--ink)';
+            const phoneL = (g.items[0]?.phone || '').trim();
             return (
               <div
                 key={g.key}
@@ -1608,10 +1613,19 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 13 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontWeight: 500, color: nameColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {g.name || '販売店未登録'}
                     {isMulti && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--muted)' }}>（{g.items.length}路線）</span>}
                   </div>
+                  {phoneL && (
+                    <a
+                      href={`tel:${phoneL.replace(/[^0-9+]/g, '')}`}
+                      onClick={e => e.stopPropagation()}
+                      style={{ display: 'inline-block', fontSize: 12, color: '#0B4EA2', textDecoration: 'underline', marginTop: 2 }}
+                    >
+                      📞 {phoneL}
+                    </a>
+                  )}
                   <div style={{ fontSize: 11, color: 'var(--muted)' }}>
                     {g.prefecture || ''}
                     {' ・ 国道 '}{g.items.map(sh => sh.sticker.routeNumber).sort((a, b) => a - b).join('・')}
