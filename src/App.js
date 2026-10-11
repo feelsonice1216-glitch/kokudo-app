@@ -44,6 +44,7 @@ const isConvenienceStore = (name) => !!name && CONVENIENCE_KEYWORDS.some(k => na
 /* "9:00-17:00" のような営業時間の文字列から開始・終了(分)を取り出す。"24時間"は0:00-24:00扱い */
 function parseBusinessHours(text) {
   if (!text) return null;
+  if (text.includes('乗船便')) return null; // 乗船便による店舗は休業判定・時間絞り込みから除外
   if (text.includes('24時間')) return { openMin: 0, closeMin: 24 * 60, label: text };
   const m = text.match(/(\d{1,2})[:：](\d{2})\s*[-〜~]\s*(\d{1,2})[:：](\d{2})/);
   if (!m) return null;
