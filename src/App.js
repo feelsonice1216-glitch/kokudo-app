@@ -37,6 +37,13 @@ const PREF_COORDS = {
   '鹿児島県': [31.5602, 130.5581], '沖縄県': [26.2124, 127.6809],
 };
 
+/* 取得日を「26'4月1日」形式にする（YYYY-MM-DD を想定） */
+const fmtAcqDateShort = (s) => {
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s || '');
+  if (!m) return s || '取得日未入力';
+  return `${m[1].slice(2)}'${Number(m[2])}月${Number(m[3])}日`;
+};
+
 /* 都道府県コード順（JIS X 0401：01北海道〜47沖縄） */
 const PREF_JIS_ORDER = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県'];
 const prefJisIndex = (name) => { const i = PREF_JIS_ORDER.indexOf(name); return i === -1 ? 999 : i; };
@@ -1796,7 +1803,11 @@ function CollectionFileView({ stickers, shops, onOpen }) {
             <div
               key={c.n}
               className={`binder-cell ${c.status}`}
-              onClick={() => c.sticker && onOpen(c.sticker)}
+              onClick={() => {
+                if (!c.sticker) return;
+                if (c.status === 'acquired') { setOpenCellKey(openCellKey === c.n ? null : c.n); return; }
+                onOpen(c.sticker);
+              }}
               title={c.sticker ? c.sticker.name : `国道${c.n}号（欠番）`}
             >
               <RouteBadge number={c.n} status={c.status} size={48} />
@@ -1804,16 +1815,13 @@ function CollectionFileView({ stickers, shops, onOpen }) {
                 <div className="binder-cell-info">
                   <div
                     className="line date"
-                    style={{ cursor: 'pointer', textDecoration: 'underline dotted' }}
+                    style={{ cursor: 'pointer', textDecoration: 'underline dotted', whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' }}
                     onClick={e => { e.stopPropagation(); setOpenCellKey(openCellKey === c.n ? null : c.n); }}
                   >
-                    {c.sticker.acquiredDate || '取得日未入力'}
+                    {fmtAcqDateShort(c.sticker.acquiredDate)}
                   </div>
                   {openCellKey === c.n && (
-                    <>
-                      <div className="line shop">{shop?.name || '取得店舗未入力'}</div>
-                      {c.sticker.notes && <div className="line kaido">{c.sticker.notes}</div>}
-                    </>
+                    <div className="line shop">{shop?.name || '取得店舗未入力'}</div>
                   )}
                 </div>
               )}
@@ -2221,7 +2229,7 @@ function StatsView({ stats, stickers, shops, almostEnabled, chartTypePref }) {
                 <div className="timeline-dot" />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{s.acquiredDate}（{i + 1}枚目）</div>
-                  <div style={{ fontWeight: 500, fontSize: 14 }}>国道{s.routeNumber}号 {s.name}</div>
+                  <div style={{ fontWeight: 500, fontSize: 14 }}>国道{s.routeNumber}号</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{s.shopName || '販売店未指定'} ・ {s.method}</div>
                 </div>
               </div>
