@@ -2034,8 +2034,7 @@ function StatsView({ stats, stickers, shops, almostEnabled, chartTypePref }) {
   const [rankSort, setRankSort] = useState('code');
   const remainingRanking = useMemo(() => {
     const list = prefCompletion
-      .map(p => ({ ...p, remaining: p.total - p.acquired }))
-      .filter(p => p.remaining > 0);
+      .map(p => ({ ...p, remaining: p.total - p.acquired }));
     if (rankSort === 'remainingAsc') return list.sort((a, b) => a.remaining - b.remaining || prefJisIndex(a.name) - prefJisIndex(b.name));
     if (rankSort === 'remainingDesc') return list.sort((a, b) => b.remaining - a.remaining || prefJisIndex(a.name) - prefJisIndex(b.name));
     return list.sort((a, b) => prefJisIndex(a.name) - prefJisIndex(b.name));
@@ -2186,7 +2185,7 @@ function StatsView({ stats, stickers, shops, almostEnabled, chartTypePref }) {
                 <div style={{ flex: 1, height: 8, borderRadius: 999, background: '#EEEEEA', overflow: 'hidden' }}>
                   <div style={{ width: `${(p.acquired / p.total) * 100}%`, height: '100%', background: '#0B4EA2' }} />
                 </div>
-                <span style={{ width: 90, textAlign: 'right', color: 'var(--muted)', fontSize: 12 }}>残り{p.remaining}枚（{p.acquired}/{p.total}）</span>
+                <span style={{ width: 90, textAlign: 'right', color: p.remaining === 0 ? '#0B4EA2' : 'var(--muted)', fontWeight: p.remaining === 0 ? 700 : 400, fontSize: 12 }}>{p.remaining === 0 ? 'コンプリート' : `残り${p.remaining}枚`}（{p.acquired}/{p.total}）</span>
               </div>
             ))}
           </div>
