@@ -54,6 +54,14 @@ function parseBusinessHours(text) {
   return { openMin, closeMin, label: text };
 }
 const timeToMin = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+/* 分を「H:MM」表示にする（24時を超える場合は翌日表記） */
+const fmtMin = (min) => {
+  const next = min >= 24 * 60;
+  const base = next ? min - 24 * 60 : min;
+  const h = Math.floor(base / 60);
+  const m = String(base % 60).padStart(2, '0');
+  return `${next ? '翌' : ''}${h}:${m}`;
+};
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -229,7 +237,7 @@ function emptySticker() {
 function emptyShop() {
   return {
     id: null, name: '', address: '', prefecture: '', lat: '', lng: '', mapUrl: '',
-    businessHours: '', closedDays: '', wantToVisit: false, revisit: false, stockChecks: [], shopImageUrl: '',
+    businessHours: '', closedDays: '', phone: '', wantToVisit: false, revisit: false, stockChecks: [], shopImageUrl: '',
   };
 }
 
@@ -415,9 +423,7 @@ function DetailModal({ sticker, shopsForSticker, onClose, onSave, onDelete }) {
                 {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </Field>
-            <Field label="発売日（判明分）"><input type="date" value={f.releaseDate} onChange={e => set('releaseDate', e.target.value)} /></Field>
           </div>
-          <Field label="ステッカー画像URL"><input value={f.imageUrl} onChange={e => set('imageUrl', e.target.value)} placeholder="任意" /></Field>
 
           <div className="hr" />
 
@@ -500,6 +506,7 @@ function DetailModal({ sticker, shopsForSticker, onClose, onSave, onDelete }) {
                   <Field label="営業時間"><input value={sh.businessHours} onChange={e => setShop(idx, 'businessHours', e.target.value)} placeholder="例: 9:00-17:00" /></Field>
                   <Field label="定休日"><input value={sh.closedDays} onChange={e => setShop(idx, 'closedDays', e.target.value)} placeholder="例: 水曜定休" /></Field>
                 </div>
+                <Field label="電話番号"><input value={sh.phone || ''} onChange={e => setShop(idx, 'phone', e.target.value)} placeholder="例: 0123-45-6789" /></Field>
                 <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
                   <label className="chk"><input type="checkbox" checked={sh.wantToVisit} onChange={e => setShop(idx, 'wantToVisit', e.target.checked)} /> 訪問予定（未訪問）</label>
                   <label className="chk"><input type="checkbox" checked={sh.revisit} onChange={e => setShop(idx, 'revisit', e.target.checked)} /> 再訪問予定</label>
@@ -769,7 +776,7 @@ export default function App() {
         const shopId = uid();
         newShops.push({
           id: shopId, stickerId: sticker.id, name: r.shopName, address: r.address || '', prefecture: r.prefecture || '',
-          lat: +r.lat || '', lng: +r.lng || '', mapUrl: '', businessHours: r.businessHours || '', closedDays: r.closedDays || '',
+          lat: +r.lat || '', lng: +r.lng || '', mapUrl: '', businessHours: r.businessHours || '', closedDays: r.closedDays || '', phone: r.phone || '',
           wantToVisit: false, revisit: false, stockChecks: [], shopImageUrl: '',
         });
         if (sticker.acquired && !sticker.acquiredShopId) sticker.acquiredShopId = shopId;
@@ -832,7 +839,7 @@ export default function App() {
           const idx = nextShops.findIndex(sh => sh.stickerId === stickerId && sh.name === inc.name);
           if (idx >= 0) {
             updatedShops++;
-            nextShops[idx] = { ...nextShops[idx], address: inc.address ?? nextShops[idx].address, prefecture: inc.prefecture ?? nextShops[idx].prefecture, lat: inc.lat ?? nextShops[idx].lat, lng: inc.lng ?? nextShops[idx].lng, mapUrl: inc.mapUrl ?? nextShops[idx].mapUrl, businessHours: inc.businessHours ?? nextShops[idx].businessHours, closedDays: inc.closedDays ?? nextShops[idx].closedDays };
+            nextShops[idx] = { ...nextShops[idx], address: inc.address ?? nextShops[idx].address, prefecture: inc.prefecture ?? nextShops[idx].prefecture, lat: inc.lat ?? nextShops[idx].lat, lng: inc.lng ?? nextShops[idx].lng, mapUrl: inc.mapUrl ?? nextShops[idx].mapUrl, businessHours: inc.businessHours ?? nextShops[idx].businessHours, closedDays: inc.closedDays ?? nextShops[idx].closedDays, phone: inc.phone ?? nextShops[idx].phone };
           } else {
             addedShops++;
             nextShops.push({ ...emptyShop(), ...inc, id: uid(), stickerId });
@@ -887,7 +894,6 @@ export default function App() {
         <NavBtn icon={<Home size={18} />} label="ホーム" active={view === 'home'} onClick={() => setView('home')} />
         <NavBtn icon={<LayoutGrid size={18} />} label="ステッカー一覧" active={view === 'list'} onClick={() => setView('list')} />
         <NavBtn icon={<MapPin size={18} />} label="販売店マップ" active={view === 'map'} onClick={() => setView('map')} />
-        <NavBtn icon={<Navigation size={18} />} label="全国国道マップ" active={view === 'nationalmap'} onClick={() => setView('nationalmap')} />
         <NavBtn icon={<LayoutGrid size={18} />} label="国道ステッカーコレクションファイル" active={view === 'collectionfile'} onClick={() => setView('collectionfile')} />
         <NavBtn icon={<CalendarDays size={18} />} label="訪問予定リスト" active={view === 'visitplan'} onClick={() => setView('visitplan')} />
         <NavBtn icon={<Images size={18} />} label="アルバム" active={view === 'album'} onClick={() => setView('album')} />
@@ -910,7 +916,6 @@ export default function App() {
           />
         )}
         {view === 'map' && <MapView stickers={stickers} shops={shops} onOpen={openEditor} mapStylePref={mapStylePref} mapHomePref={mapHomePrefPref} />}
-        {view === 'nationalmap' && <NationalMapView stickers={stickers} shops={shops} onOpen={openEditor} mapStylePref={mapStylePref} mapHomePref={mapHomePrefPref} />}
         {view === 'collectionfile' && <CollectionFileView stickers={stickers} shops={shops} onOpen={openEditor} />}
         {view === 'visitplan' && <VisitPlanView stickers={stickers} shops={shops} onOpen={openEditor} onToggleWantToVisit={toggleWantToVisit} onToggleRevisit={toggleRevisit} visitSortPref={visitSortPref} setVisitSortPref={setVisitSortPref} />}
         {view === 'album' && <AlbumView stickers={stickers} shops={shops} onOpen={openEditor} />}
@@ -1256,6 +1261,19 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
   const markersRef = useRef({});
   const [openAtOrBefore, setOpenAtOrBefore] = useState('');
   const [closeAtOrAfter, setCloseAtOrAfter] = useState('');
+  /* 各店舗の営業時間から、実際にある開店・閉店時刻だけを選択肢にする */
+  const { openOptions, closeOptions } = useMemo(() => {
+    const opens = new Set();
+    const closes = new Set();
+    shops.forEach(sh => {
+      const bh = parseBusinessHours(sh.businessHours || '');
+      if (bh) { opens.add(bh.openMin); closes.add(bh.closeMin); }
+    });
+    return {
+      openOptions: Array.from(opens).sort((a, b) => a - b),
+      closeOptions: Array.from(closes).sort((a, b) => a - b),
+    };
+  }, [shops]);
   const [selectedId, setSelectedId] = useState(null);
   const [highlightKm, setHighlightKm] = useState('10');
   const prefectures = useMemo(() => Array.from(new Set(shops.map(sh => sh.prefecture).filter(Boolean))).sort(), [shops]);
@@ -1302,12 +1320,12 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
     if (statusFilter === 'visited') list = list.filter(sh => sh.sticker.visitedOnly && !sh.sticker.acquired);
     if (statusFilter === 'pending') list = list.filter(sh => !sh.sticker.acquired);
     if (convenienceOnly) list = list.filter(sh => isConvenienceStore(sh.name));
-    if (openAtOrBefore) {
-      const t = timeToMin(openAtOrBefore);
+    if (openAtOrBefore !== '') {
+      const t = Number(openAtOrBefore);
       list = list.filter(sh => { const bh = parseBusinessHours(sh.businessHours); return bh && bh.openMin <= t; });
     }
-    if (closeAtOrAfter) {
-      const t = timeToMin(closeAtOrAfter);
+    if (closeAtOrAfter !== '') {
+      const t = Number(closeAtOrAfter);
       list = list.filter(sh => { const bh = parseBusinessHours(sh.businessHours); return bh && bh.closeMin >= t; });
     }
     const q = query.trim().toLowerCase();
@@ -1475,8 +1493,8 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
     <div className="view" style={{ maxWidth: 1200 }}>
       <header className="view-header">
         <div>
-          <div className="eyebrow">{variant === 'shop' ? 'SHOP MAP' : 'NATIONAL MAP'}</div>
-          <h1>{variant === 'shop' ? '販売店マップ' : '全国国道マップ'}</h1>
+          <div className="eyebrow">SHOP MAP</div>
+          <h1>販売店マップ</h1>
         </div>
         <button className="btn-secondary" onClick={locate} disabled={locLoading}>
           <Locate size={15} /> {locLoading ? '取得中…' : '現在地を表示'}
@@ -1540,12 +1558,18 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
         </label>
         <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
           開店
-          <input type="time" value={openAtOrBefore} onChange={e => setOpenAtOrBefore(e.target.value)} style={{ width: 100 }} />
+          <select value={openAtOrBefore} onChange={e => setOpenAtOrBefore(e.target.value)}>
+            <option value="">指定なし</option>
+            {openOptions.map(m => <option key={m} value={String(m)}>{fmtMin(m)}</option>)}
+          </select>
           までに
         </label>
         <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
           閉店
-          <input type="time" value={closeAtOrAfter} onChange={e => setCloseAtOrAfter(e.target.value)} style={{ width: 100 }} />
+          <select value={closeAtOrAfter} onChange={e => setCloseAtOrAfter(e.target.value)}>
+            <option value="">指定なし</option>
+            {closeOptions.map(m => <option key={m} value={String(m)}>{fmtMin(m)}</option>)}
+          </select>
           以降
         </label>
         {myPos && (
@@ -1644,7 +1668,7 @@ function AlbumView({ stickers, shops, onOpen }) {
 
       {list.length === 0 && (
         <div className="panel" style={{ padding: 24, fontSize: 13, color: 'var(--muted)' }}>
-          {tab === 'sticker' ? 'ステッカー画像URLが登録されたステッカーはまだありません。詳細編集画面の「ステッカー画像URL」から登録できます。' : '写真URLが登録された販売店はまだありません。詳細編集画面の販売店ごとに登録できます。'}
+          {tab === 'sticker' ? '画像が登録されたステッカーはまだありません。' : '写真URLが登録された販売店はまだありません。詳細編集画面の販売店ごとに登録できます。'}
         </div>
       )}
 
