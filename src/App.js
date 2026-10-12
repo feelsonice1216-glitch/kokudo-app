@@ -29,6 +29,12 @@ const PREF_REGION = {
   '福岡県': '九州・沖縄', '佐賀県': '九州・沖縄', '長崎県': '九州・沖縄', '熊本県': '九州・沖縄', '大分県': '九州・沖縄', '宮崎県': '九州・沖縄', '鹿児島県': '九州・沖縄', '沖縄県': '九州・沖縄',
 };
 const shopRegion = (prefecture) => PREF_REGION[prefecture] || '';
+/* ステッカーの表示地域：取得店（未取得は最初の販売店）の地域。販売店がなければ設定値 */
+const stickerDisplayRegion = (s) => {
+  const list = s.shopsList || [];
+  const primary = s.acquired ? (list.find(sh => sh.id === s.acquiredShopId) || list[0]) : list[0];
+  return primary?.prefecture ? shopRegion(primary.prefecture) : (s.region || '');
+};
 const METHODS = ['現地購入', 'オンライン', 'フリマアプリ', '頂き物', 'その他'];
 
 /* 都道府県庁所在地のおおよその座標（地図の初期表示位置に使用） */
@@ -676,7 +682,7 @@ export default function App() {
       'route-asc': (a, b) => a.routeNumber - b.routeNumber,
       'route-desc': (a, b) => b.routeNumber - a.routeNumber,
       'prefecture': (a, b) => (a.shopsList[0]?.prefecture || '').localeCompare(b.shopsList[0]?.prefecture || '', 'ja'),
-      'region': (a, b) => REGIONS.indexOf(a.region) - REGIONS.indexOf(b.region),
+      'region': (a, b) => REGIONS.indexOf(stickerDisplayRegion(a)) - REGIONS.indexOf(stickerDisplayRegion(b)),
       'acquired-date': (a, b) => (b.acquiredDate || '').localeCompare(a.acquiredDate || ''),
       'updated': (a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''),
       'shop': (a, b) => (a.shopsList[0]?.name || '').localeCompare(b.shopsList[0]?.name || '', 'ja'),
@@ -806,7 +812,7 @@ export default function App() {
       const key = `${r.routeNumber}__${r.name}`;
       if (!stickerMap.has(key)) {
         stickerMap.set(key, {
-          id: uid(), routeNumber: +r.routeNumber || 0, name: r.name, region: r.region || REGIONS[0],
+          id: uid(), routeNumber: +r.routeNumber || 0, name: r.name, region: r.region || REGIONS[0], kaido: r.kaido || '',
           releaseDate: '', imageUrl: '', notes: '',
           acquired: r.acquired === 'true', acquiredDate: r.acquiredDate || '', acquiredShopId: '',
           method: r.method || '', price: +r.price || '', rating: +r.rating || 0, favorite: r.favorite === 'true', visitedOnly: r.visitedOnly === 'true', memo: r.memo || '',
@@ -866,7 +872,7 @@ export default function App() {
           if (idx >= 0) {
             updatedStickers++;
             idMap[inc.id ?? i] = nextStickers[idx].id;
-            nextStickers[idx] = { ...nextStickers[idx], region: inc.region ?? nextStickers[idx].region, releaseDate: inc.releaseDate ?? nextStickers[idx].releaseDate, imageUrl: inc.imageUrl ?? nextStickers[idx].imageUrl, notes: inc.notes ?? nextStickers[idx].notes };
+            nextStickers[idx] = { ...nextStickers[idx], region: inc.region ?? nextStickers[idx].region, kaido: inc.kaido ?? nextStickers[idx].kaido, releaseDate: inc.releaseDate ?? nextStickers[idx].releaseDate, imageUrl: inc.imageUrl ?? nextStickers[idx].imageUrl, notes: inc.notes ?? nextStickers[idx].notes };
           } else {
             const newId = uid();
             idMap[inc.id ?? i] = newId;
@@ -936,7 +942,7 @@ export default function App() {
         <NavBtn icon={<Home size={18} />} label="ホーム" active={view === 'home'} onClick={() => setView('home')} />
         <NavBtn icon={<LayoutGrid size={18} />} label="ステッカー一覧" active={view === 'list'} onClick={() => setView('list')} />
         <NavBtn icon={<MapPin size={18} />} label="販売店マップ" active={view === 'map'} onClick={() => setView('map')} />
-        <NavBtn icon={<LayoutGrid size={18} />} label="コレクションファイル" active={view === 'collectionfile'} onClick={() => setView('collectionfile')} />
+        <NavBtn icon={<RouteSignIcon size={18} />} label="コレクションファイル" active={view === 'collectionfile'} onClick={() => setView('collectionfile')} />
         <NavBtn icon={<CalendarDays size={18} />} label="訪問予定リスト" active={view === 'visitplan'} onClick={() => setView('visitplan')} />
         <NavBtn icon={<Images size={18} />} label="アルバム" active={view === 'album'} onClick={() => setView('album')} />
         <NavBtn icon={<BarChart3 size={18} />} label="統計" active={view === 'stats'} onClick={() => setView('stats')} />
@@ -994,6 +1000,18 @@ export default function App() {
 
       {toast && <div className="toast">{toast}</div>}
     </div>
+  );
+}
+
+/* 国道看板マーク（おにぎり型）のメニュー用アイコン。色は文字色（currentColor）に合わせる */
+function RouteSignIcon({ size = 18 }) {
+  const h = Math.round(size * 1.12);
+  return (
+    <svg width={size} height={h} viewBox="0 0 100 110" aria-hidden="true" style={{ display: 'block' }}>
+      <path d={ONIGIRI_OUTER_PATH} fill="currentColor" />
+      <text x="34" y="34" textAnchor="middle" fontFamily="'Noto Sans JP', sans-serif" fontWeight="700" fontSize="16" fill="#fff">国</text>
+      <text x="66" y="34" textAnchor="middle" fontFamily="'Noto Sans JP', sans-serif" fontWeight="700" fontSize="16" fill="#fff">道</text>
+    </svg>
   );
 }
 
@@ -1154,7 +1172,8 @@ function ListView({ filtered, layout, setLayout, query, setQuery, filter, setFil
                   <RouteBadge number={s.routeNumber} acquired={s.acquired} size={compact ? 28 : undefined} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: compact ? 13 : 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
-                    {!compact && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{s.region}</div>}
+                    {!compact && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{stickerDisplayRegion(s)}</div>}
+                    {!compact && s.kaido && <div style={{ fontSize: 11, color: '#9a6b00' }}>{s.kaido}</div>}
                   </div>
                   <button className="icon-btn" onClick={e => { e.stopPropagation(); onToggleFav(s.id); }}>
                     <Star size={compact ? 14 : 16} fill={s.favorite ? 'var(--warm)' : 'none'} color={s.favorite ? 'var(--warm)' : 'var(--muted)'} />
@@ -1848,6 +1867,11 @@ function CollectionFileView({ stickers, shops, onOpen }) {
               title={c.sticker ? c.sticker.name : `国道${c.n}号（欠番）`}
             >
               <RouteBadge number={c.n} status={c.status} size={48} />
+              {c.sticker?.kaido && (
+                <div className="line kaido" style={{ whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip', textAlign: 'center', maxWidth: '100%' }}>
+                  {c.sticker.kaido}
+                </div>
+              )}
               {c.status === 'acquired' && (
                 <div className="binder-cell-info">
                   <div
@@ -1918,6 +1942,8 @@ function CollectionFileView({ stickers, shops, onOpen }) {
             <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 12px', margin: 0, fontSize: 13 }}>
               <dt style={{ color: 'var(--muted)' }}>ステッカー名</dt>
               <dd style={{ margin: 0, fontWeight: 600 }}>国道{infoCell.sticker.routeNumber}号</dd>
+              <dt style={{ color: 'var(--muted)' }}>街道名</dt>
+              <dd style={{ margin: 0 }}>{infoCell.sticker.kaido || '未入力'}</dd>
               <dt style={{ color: 'var(--muted)' }}>地域</dt>
               <dd style={{ margin: 0 }}>{infoCell.region || '未入力'}</dd>
               <dt style={{ color: 'var(--muted)' }}>取得日</dt>
