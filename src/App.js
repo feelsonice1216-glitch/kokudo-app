@@ -577,6 +577,9 @@ export default function App() {
   const [stickers, setStickers] = useState([]);
   const [shops, setShops] = useState([]);
   const [ready, setReady] = useState(false);
+  const [masterLoading, setMasterLoading] = useState(false);
+  const stickersRef = useRef(stickers); stickersRef.current = stickers;
+  const shopsRef = useRef(shops); shopsRef.current = shops;
   const [view, setView] = useState('home');
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('kokudo-dark-mode') === 'true');
   useEffect(() => { localStorage.setItem('kokudo-dark-mode', String(darkMode)); }, [darkMode]);
@@ -855,6 +858,43 @@ export default function App() {
     e.target.value = '';
   };
 
+  /* マスターデータを既存データに反映する（取得情報は変えない） */
+  const applyMasterData = (incoming, baseStickers, baseShops) => {
+    const incStickers = incoming.stickers || [];
+    const incShops = incoming.shops || [];
+    const nextStickers = [...baseStickers];
+    const idMap = {};
+    let addedStickers = 0, updatedStickers = 0;
+    incStickers.forEach((inc, i) => {
+      const idx = nextStickers.findIndex(s => s.routeNumber === inc.routeNumber && s.name === inc.name);
+      if (idx >= 0) {
+        updatedStickers++;
+        idMap[inc.id ?? i] = nextStickers[idx].id;
+        nextStickers[idx] = { ...nextStickers[idx], region: inc.region ?? nextStickers[idx].region, kaido: inc.kaido ?? nextStickers[idx].kaido, releaseDate: inc.releaseDate ?? nextStickers[idx].releaseDate, imageUrl: inc.imageUrl ?? nextStickers[idx].imageUrl, notes: inc.notes ?? nextStickers[idx].notes };
+      } else {
+        const newId = uid();
+        idMap[inc.id ?? i] = newId;
+        addedStickers++;
+        nextStickers.push({ ...emptySticker(), ...inc, id: newId, updatedAt: new Date().toISOString().slice(0, 10) });
+      }
+    });
+    const nextShops = [...baseShops];
+    let addedShops = 0, updatedShops = 0;
+    incShops.forEach(inc => {
+      const stickerId = idMap[inc.stickerId] ?? inc.stickerId;
+      const idx = nextShops.findIndex(sh => sh.stickerId === stickerId && sh.name === inc.name);
+      if (idx >= 0) {
+        updatedShops++;
+        nextShops[idx] = { ...nextShops[idx], address: inc.address ?? nextShops[idx].address, prefecture: inc.prefecture ?? nextShops[idx].prefecture, lat: inc.lat ?? nextShops[idx].lat, lng: inc.lng ?? nextShops[idx].lng, mapUrl: inc.mapUrl ?? nextShops[idx].mapUrl, businessHours: inc.businessHours ?? nextShops[idx].businessHours, closedDays: inc.closedDays ?? nextShops[idx].closedDays, phone: inc.phone ?? nextShops[idx].phone };
+      } else {
+        addedShops++;
+        nextShops.push({ ...emptyShop(), ...inc, id: uid(), stickerId });
+      }
+    });
+    return { nextStickers, nextShops, counts: { addedStickers, updatedStickers, addedShops, updatedShops } };
+  };
+
+  /* 手動で取り込む（予備の方法として残す） */
   const mergeMasterData = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -862,45 +902,43 @@ export default function App() {
     reader.onload = () => {
       try {
         const incoming = JSON.parse(reader.result);
-        const incStickers = incoming.stickers || [];
-        const incShops = incoming.shops || [];
-        const nextStickers = [...stickers];
-        const idMap = {};
-        let addedStickers = 0, updatedStickers = 0;
-        incStickers.forEach((inc, i) => {
-          const idx = nextStickers.findIndex(s => s.routeNumber === inc.routeNumber && s.name === inc.name);
-          if (idx >= 0) {
-            updatedStickers++;
-            idMap[inc.id ?? i] = nextStickers[idx].id;
-            nextStickers[idx] = { ...nextStickers[idx], region: inc.region ?? nextStickers[idx].region, kaido: inc.kaido ?? nextStickers[idx].kaido, releaseDate: inc.releaseDate ?? nextStickers[idx].releaseDate, imageUrl: inc.imageUrl ?? nextStickers[idx].imageUrl, notes: inc.notes ?? nextStickers[idx].notes };
-          } else {
-            const newId = uid();
-            idMap[inc.id ?? i] = newId;
-            addedStickers++;
-            nextStickers.push({ ...emptySticker(), ...inc, id: newId, updatedAt: new Date().toISOString().slice(0, 10) });
-          }
-        });
-        const nextShops = [...shops];
-        let addedShops = 0, updatedShops = 0;
-        incShops.forEach(inc => {
-          const stickerId = idMap[inc.stickerId] ?? inc.stickerId;
-          const idx = nextShops.findIndex(sh => sh.stickerId === stickerId && sh.name === inc.name);
-          if (idx >= 0) {
-            updatedShops++;
-            nextShops[idx] = { ...nextShops[idx], address: inc.address ?? nextShops[idx].address, prefecture: inc.prefecture ?? nextShops[idx].prefecture, lat: inc.lat ?? nextShops[idx].lat, lng: inc.lng ?? nextShops[idx].lng, mapUrl: inc.mapUrl ?? nextShops[idx].mapUrl, businessHours: inc.businessHours ?? nextShops[idx].businessHours, closedDays: inc.closedDays ?? nextShops[idx].closedDays, phone: inc.phone ?? nextShops[idx].phone };
-          } else {
-            addedShops++;
-            nextShops.push({ ...emptyShop(), ...inc, id: uid(), stickerId });
-          }
-        });
+        const { nextStickers, nextShops, counts } = applyMasterData(incoming, stickers, shops);
         setStickers(nextStickers);
         setShops(nextShops);
-        showToast(`マスター更新: ステッカー新規${addedStickers}/更新${updatedStickers}、販売店新規${addedShops}/更新${updatedShops}`);
+        if (incoming.version) localStorage.setItem('kokudo-master-version', incoming.version);
+        showToast(`マスター更新: ステッカー新規${counts.addedStickers}/更新${counts.updatedStickers}、販売店新規${counts.addedShops}/更新${counts.updatedShops}`);
       } catch (err) { showToast('更新に失敗しました'); }
     };
     reader.readAsText(file);
     e.target.value = '';
   };
+
+  /* 起動時に、サイト内のマスターデータを自動で読み込む（版が変わったときだけ反映） */
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    setMasterLoading(true);
+    (async () => {
+      try {
+        const res = await fetch('/kokudo-master.json', { cache: 'no-cache' });
+        if (!res.ok) return;
+        const incoming = await res.json();
+        const stored = localStorage.getItem('kokudo-master-version');
+        if (incoming.version && incoming.version === stored) return;
+        const { nextStickers, nextShops } = applyMasterData(incoming, stickersRef.current, shopsRef.current);
+        if (cancelled) return;
+        setStickers(nextStickers);
+        setShops(nextShops);
+        if (incoming.version) localStorage.setItem('kokudo-master-version', incoming.version);
+        showToast('最新のデータに更新しました');
+      } catch (err) {
+        // 通信できない場合は、前回のデータをそのまま使う
+      } finally {
+        if (!cancelled) setMasterLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ready]);
 
   const resetData = () => {
     if (requireTypedConfirmPref) {
@@ -949,6 +987,11 @@ export default function App() {
         <NavBtn icon={<Settings size={18} />} label="設定・バックアップ" active={view === 'settings'} onClick={() => setView('settings')} />
       </nav>
 
+      {masterLoading && (
+        <div style={{ position: 'fixed', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 60, background: 'var(--primary)', color: '#fff', fontSize: 12, padding: '6px 14px', borderRadius: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.25)' }}>
+          データを更新中・・・
+        </div>
+      )}
       <main className="content">
         {isOffline && <div className="offline-banner">オフラインです。一部の機能が制限される場合があります。</div>}
 
@@ -1837,10 +1880,10 @@ function CollectionFileView({ stickers, shops, onOpen }) {
   const [flipDir, setFlipDir] = useState(null); // 'next' | 'prev' | null
   const [flipping, setFlipping] = useState(false);
   useEffect(() => { setPageIndex(0); }, [regionFilter]);
-  useEffect(() => { if (pageIndex > pages.length - 1) setPageIndex(Math.max(0, pages.length - 1)); }, [pages.length, pageIndex]);
+  useEffect(() => { if (pageIndex > pages.length) setPageIndex(0); }, [pages.length, pageIndex]);
 
   const goTo = (nextIndex, dir) => {
-    if (flipping || nextIndex < 0 || nextIndex > pages.length - 1) return;
+    if (flipping || nextIndex < 0 || nextIndex > pages.length) return;
     setFlipDir(dir);
     setFlipping(true);
     setTimeout(() => {
@@ -1893,7 +1936,7 @@ function CollectionFileView({ stickers, shops, onOpen }) {
     </div>
   );
 
-  const currentPage = pages[pageIndex];
+  const currentPage = pageIndex === 0 ? null : pages[pageIndex - 1];
 
   return (
     <div className="view">
@@ -1914,18 +1957,29 @@ function CollectionFileView({ stickers, shops, onOpen }) {
         <span><i className="dot" style={{ background: '#1A1D22' }} /> 欠番（{missingCount}）</span>
       </div>
 
-      {currentPage && (
+      {pageIndex === 0 ? (
         <div className="binder-flip-stage">
           <div className={`binder-flip-page ${flipping ? (flipDir === 'next' ? 'flip-next' : 'flip-prev') : ''}`}>
-            {renderPage(currentPage, pageIndex)}
+            <div className="binder-cover">
+              <div className="binder-cover-title">
+                <span className="big">国道ステッカー</span><br />
+                <span className="small">非公式コレクションファイル</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : currentPage && (
+        <div className="binder-flip-stage">
+          <div className={`binder-flip-page ${flipping ? (flipDir === 'next' ? 'flip-next' : 'flip-prev') : ''}`}>
+            {renderPage(currentPage, pageIndex - 1)}
           </div>
         </div>
       )}
 
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16, marginTop: 14 }}>
         <button className="btn-secondary" onClick={() => goTo(pageIndex - 1, 'prev')} disabled={pageIndex === 0 || flipping}>← 前のページ</button>
-        <span style={{ fontSize: 13, color: 'var(--muted)' }}>{pageIndex + 1} / {pages.length} ページ</span>
-        <button className="btn-secondary" onClick={() => goTo(pageIndex + 1, 'next')} disabled={pageIndex === pages.length - 1 || flipping}>次のページ →</button>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>{pageIndex === 0 ? '表紙' : `${pageIndex} / ${pages.length} ページ`}</span>
+        <button className="btn-secondary" onClick={() => goTo(pageIndex === pages.length ? 0 : pageIndex + 1, 'next')} disabled={flipping}>{pageIndex === pages.length ? '表紙へ →' : '次のページ →'}</button>
       </div>
 
       {infoCell && (
@@ -2680,6 +2734,11 @@ textarea { resize: vertical; }
 .binder-flip-page { transform-origin: left center; transform-style: preserve-3d; transition: transform 0.38s ease, box-shadow 0.38s ease; }
 .binder-flip-page.flip-next { transform: rotateY(-18deg) scale(0.97); box-shadow: -20px 10px 30px rgba(0,0,0,0.35); }
 .binder-flip-page.flip-prev { transform: rotateY(18deg) scale(0.97); box-shadow: 20px 10px 30px rgba(0,0,0,0.35); }
+.binder-cover { width: 100%; max-width: 420px; aspect-ratio: 3 / 4; margin: 0 auto; border-radius: 12px; position: relative; display: flex; align-items: center; justify-content: center; background: linear-gradient(160deg, #1f2f52 0%, #132243 55%, #0c1830 100%); box-shadow: 0 10px 30px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.06); }
+.binder-cover::before { content: ''; position: absolute; inset: 12px; border: 1.5px dashed rgba(200,210,225,0.35); border-radius: 8px; }
+.binder-cover-title { color: #dfe4ec; text-align: center; font-weight: 700; letter-spacing: 0.08em; line-height: 1.7; padding: 0 16px; text-shadow: 0 1px 0 #000, 0 0 12px rgba(255,255,255,0.15); }
+.binder-cover-title .big { font-size: 26px; }
+.binder-cover-title .small { font-size: 15px; font-weight: 600; }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; flex-shrink: 0; }
 .map-main { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .leaflet-holder { flex: 1; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); min-height: 260px; }
