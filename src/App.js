@@ -261,7 +261,7 @@ function buildSeed() {
 function emptySticker() {
   return {
     id: null, routeNumber: '', name: '', region: REGIONS[0], releaseDate: '', imageUrl: '', notes: '',
-    acquired: false, acquiredDate: '', acquiredShopId: '', method: '', price: '', memo: '', rating: 0, favorite: false, visitedOnly: false,
+    acquired: false, acquiredDate: '', acquiredShopId: '', method: '', price: '', memo: '', rating: 0, favorite: false, visitedOnly: false, visitedDate: '',
   };
 }
 
@@ -311,10 +311,10 @@ function toCSVRows(stickers, shops) {
   stickers.forEach(s => {
     const related = shops.filter(sh => sh.stickerId === s.id);
     if (related.length === 0) {
-      rows.push({ routeNumber: s.routeNumber, name: s.name, region: s.region, acquired: s.acquired, acquiredDate: s.acquiredDate, method: s.method, price: s.price, rating: s.rating, favorite: s.favorite, visitedOnly: s.visitedOnly, memo: s.memo, shopName: '', address: '', prefecture: '', lat: '', lng: '', businessHours: '', closedDays: '' });
+      rows.push({ routeNumber: s.routeNumber, name: s.name, region: s.region, acquired: s.acquired, acquiredDate: s.acquiredDate, method: s.method, price: s.price, rating: s.rating, favorite: s.favorite, visitedOnly: s.visitedOnly, visitedDate: s.visitedDate, memo: s.memo, shopName: '', address: '', prefecture: '', lat: '', lng: '', businessHours: '', closedDays: '' });
     } else {
       related.forEach(sh => {
-        rows.push({ routeNumber: s.routeNumber, name: s.name, region: s.region, acquired: s.acquired, acquiredDate: s.acquiredDate, method: s.method, price: s.price, rating: s.rating, favorite: s.favorite, visitedOnly: s.visitedOnly, memo: s.memo, shopName: sh.name, address: sh.address, prefecture: sh.prefecture, lat: sh.lat, lng: sh.lng, businessHours: sh.businessHours, closedDays: sh.closedDays });
+        rows.push({ routeNumber: s.routeNumber, name: s.name, region: s.region, acquired: s.acquired, acquiredDate: s.acquiredDate, method: s.method, price: s.price, rating: s.rating, favorite: s.favorite, visitedOnly: s.visitedOnly, visitedDate: s.visitedDate, memo: s.memo, shopName: sh.name, address: sh.address, prefecture: sh.prefecture, lat: sh.lat, lng: sh.lng, businessHours: sh.businessHours, closedDays: sh.closedDays });
       });
     }
   });
@@ -482,6 +482,17 @@ function DetailModal({ sticker, shopsForSticker, onClose, onSave, onDelete }) {
               <input type="checkbox" checked={f.visitedOnly} onChange={e => set('visitedOnly', e.target.checked)} /> 訪問のみ（未購入）
             </label>
           </div>
+
+          {f.visitedOnly && !f.acquired && (
+            <div style={fieldGrid}>
+              <Field label="訪問日">
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input type="date" value={f.visitedDate || ''} onChange={e => set('visitedDate', e.target.value)} style={{ flex: 1 }} />
+                  <button type="button" className="btn-secondary" style={{ flexShrink: 0, padding: '0 10px' }} onClick={() => set('visitedDate', new Date().toISOString().slice(0, 10))}>今日</button>
+                </div>
+              </Field>
+            </div>
+          )}
 
           {f.acquired && (
             <div style={fieldGrid}>
@@ -678,6 +689,7 @@ export default function App() {
       );
     }
     if (filter === 'acquired') list = list.filter(s => s.acquired);
+    if (filter === 'visited') list = list.filter(s => s.visitedOnly && !s.acquired);
     if (filter === 'pending') list = list.filter(s => !s.acquired);
     if (filter === 'favorite') list = list.filter(s => s.favorite);
 
@@ -818,7 +830,7 @@ export default function App() {
           id: uid(), routeNumber: +r.routeNumber || 0, name: r.name, region: r.region || REGIONS[0], kaido: r.kaido || '',
           releaseDate: '', imageUrl: '', notes: '',
           acquired: r.acquired === 'true', acquiredDate: r.acquiredDate || '', acquiredShopId: '',
-          method: r.method || '', price: +r.price || '', rating: +r.rating || 0, favorite: r.favorite === 'true', visitedOnly: r.visitedOnly === 'true', memo: r.memo || '',
+          method: r.method || '', price: +r.price || '', rating: +r.rating || 0, favorite: r.favorite === 'true', visitedOnly: r.visitedOnly === 'true', visitedDate: r.visitedDate || '', memo: r.memo || '',
           updatedAt: r.acquiredDate || '2026-01-01',
         });
       }
@@ -1189,6 +1201,7 @@ function ListView({ filtered, layout, setLayout, query, setQuery, filter, setFil
         <select value={filter} onChange={e => setFilter(e.target.value)}>
           <option value="all">すべて</option>
           <option value="acquired">取得済みのみ</option>
+          <option value="visited">訪問のみ</option>
           <option value="pending">未取得のみ</option>
           <option value="favorite">お気に入りのみ</option>
         </select>
@@ -1216,7 +1229,7 @@ function ListView({ filtered, layout, setLayout, query, setQuery, filter, setFil
             const primaryShop = s.acquired ? (s.shopsList.find(sh => sh.id === s.acquiredShopId) || s.shopsList[0]) : s.shopsList[0];
             const extraCount = s.shopsList.length - 1;
             return (
-              <div key={s.id} className={`card ${compact ? 'card-compact' : ''}`} onClick={() => onOpen(s)}>
+              <div key={s.id} className={`card ${compact ? 'card-compact' : ''}`} onClick={() => onOpen(s)} style={s.visitedOnly && !s.acquired ? { border: '2px solid #0B4EA2' } : undefined}>
                 <div style={{ display: 'flex', gap: compact ? 8 : 12, alignItems: 'center' }}>
                   <RouteBadge number={s.routeNumber} acquired={s.acquired} size={compact ? 28 : undefined} />
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -1237,7 +1250,8 @@ function ListView({ filtered, layout, setLayout, query, setQuery, filter, setFil
                   <span
                     className={`badge badge-tap ${s.acquired ? 'badge-ok' : 'badge-pending'}`}
                     onClick={e => { e.stopPropagation(); onToggleAcquired(s.id); }}
-                  >{s.acquired ? '✓ 取得済み' : (compact ? '未取得' : '未取得（タップで取得）')}</span>
+                  style={s.visitedOnly && !s.acquired ? { color: '#0B4EA2', background: '#fff', border: '1px solid #0B4EA2' } : undefined}
+                  >{s.acquired ? '✓ 取得済み' : (s.visitedOnly ? `訪問のみ${s.visitedDate ? ' ' + fmtAcqDateShort(s.visitedDate) : ''}` : (compact ? '未取得' : '未取得（タップで取得）'))}</span>
                   <Stars value={s.rating} size={13} />
                 </div>
               </div>
@@ -1261,7 +1275,8 @@ function ListView({ filtered, layout, setLayout, query, setQuery, filter, setFil
                 <span
                   className={`badge badge-tap ${s.acquired ? 'badge-ok' : 'badge-pending'}`}
                   onClick={e => { e.stopPropagation(); onToggleAcquired(s.id); }}
-                >{s.acquired ? '✓ 取得済み' : '未取得'}</span>
+                  style={s.visitedOnly && !s.acquired ? { color: '#0B4EA2', background: '#fff', border: '1px solid #0B4EA2' } : undefined}
+                >{s.acquired ? '✓ 取得済み' : (s.visitedOnly ? `訪問のみ${s.visitedDate ? ' ' + fmtAcqDateShort(s.visitedDate) : ''}` : '未取得')}</span>
                 <Stars value={s.rating} size={13} />
                 <button className="icon-btn" onClick={e => { e.stopPropagation(); onToggleFav(s.id); }}>
                   <Star size={16} fill={s.favorite ? 'var(--warm)' : 'none'} color={s.favorite ? 'var(--warm)' : 'var(--muted)'} />
@@ -1387,7 +1402,7 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
   }, [shops]);
   const [selectedId, setSelectedId] = useState(null);
   const [highlightKm, setHighlightKm] = useState('10');
-  const prefectures = useMemo(() => Array.from(new Set(shops.map(sh => sh.prefecture).filter(Boolean))).sort(), [shops]);
+  const prefectures = useMemo(() => Array.from(new Set(shops.map(sh => sh.prefecture).filter(Boolean))).sort((a, b) => prefJisIndex(a) - prefJisIndex(b)), [shops]);
 
   const joined = useMemo(() =>
     shops.filter(sh => sh.lat && sh.lng).map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) })).filter(sh => sh.sticker),
@@ -1883,6 +1898,7 @@ function CollectionFileView({ stickers, shops, onOpen }) {
 
   const [pageIndex, setPageIndex] = useState(0);
   const [infoCell, setInfoCell] = useState(null); // { sticker, shopName } | null
+  const touchXRef = useRef(null);
   const [flipDir, setFlipDir] = useState(null); // 'next' | 'prev' | null
   const [flipping, setFlipping] = useState(false);
   useEffect(() => { setPageIndex(0); }, [regionFilter]);
@@ -1907,15 +1923,19 @@ function CollectionFileView({ stickers, shops, onOpen }) {
           return (
             <div
               key={c.n}
-              className={`binder-cell ${c.status}`}
+              className={`binder-cell ${c.status}${c.sticker && c.status === 'pending' && c.sticker.visitedOnly ? ' visited' : ''}`}
               onClick={() => {
                 if (!c.sticker) return;
+                if (c.status === 'pending' && c.sticker.visitedOnly) { setInfoCell({ sticker: c.sticker, shopName: '', prefecture: '', region: c.sticker.region || '', visitedOnly: true }); return; }
                 if (c.status === 'acquired') { setInfoCell({ sticker: c.sticker, shopName: shop?.name || '', prefecture: shop?.prefecture || '', region: shop ? shopRegion(shop.prefecture) : (c.sticker.region || '') }); return; }
                 onOpen(c.sticker);
               }}
               title={c.sticker ? c.sticker.name : `国道${c.n}号（欠番）`}
             >
               <RouteBadge number={c.n} status={c.status} size={48} />
+              {c.status === 'pending' && c.sticker?.visitedOnly && c.sticker?.visitedDate && (
+                <div className="line date" style={{ color: '#0B4EA2', whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' }}>{fmtAcqDateShort(c.sticker.visitedDate)}</div>
+              )}
               {c.sticker?.kaido && (
                 <div className="line kaido" style={{ whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip', textAlign: 'center', maxWidth: '100%' }}>
                   {c.sticker.kaido}
@@ -1963,6 +1983,18 @@ function CollectionFileView({ stickers, shops, onOpen }) {
         <span><i className="dot" style={{ background: '#1A1D22' }} /> 欠番（{missingCount}）</span>
       </div>
 
+      <div
+        style={{ touchAction: 'pan-y' }}
+        onTouchStart={e => { touchXRef.current = e.touches[0].clientX; }}
+        onTouchEnd={e => {
+          if (touchXRef.current == null) return;
+          const dx = e.changedTouches[0].clientX - touchXRef.current;
+          touchXRef.current = null;
+          if (Math.abs(dx) < 50) return;
+          if (dx < 0) goTo(pageIndex === pages.length ? 0 : pageIndex + 1, 'next');
+          else goTo(pageIndex - 1, 'prev');
+        }}
+      >
       {pageIndex === 0 ? (
         <div className="binder-flip-stage">
           <div className={`binder-flip-page ${flipping ? (flipDir === 'next' ? 'flip-next' : 'flip-prev') : ''}`}>
@@ -1981,6 +2013,8 @@ function CollectionFileView({ stickers, shops, onOpen }) {
           </div>
         </div>
       )}
+
+      </div>
 
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16, marginTop: 14 }}>
         <button className="btn-secondary" onClick={() => goTo(pageIndex - 1, 'prev')} disabled={pageIndex === 0 || flipping}>← 前のページ</button>
@@ -2006,12 +2040,23 @@ function CollectionFileView({ stickers, shops, onOpen }) {
               <dd style={{ margin: 0 }}>{infoCell.sticker.kaido || '未入力'}</dd>
               <dt style={{ color: 'var(--muted)' }}>地域</dt>
               <dd style={{ margin: 0 }}>{infoCell.region || '未入力'}</dd>
-              <dt style={{ color: 'var(--muted)' }}>取得日</dt>
-              <dd style={{ margin: 0 }}>{infoCell.sticker.acquiredDate || '未入力'}</dd>
-              <dt style={{ color: 'var(--muted)' }}>都道府県</dt>
-              <dd style={{ margin: 0 }}>{infoCell.prefecture || '未入力'}</dd>
-              <dt style={{ color: 'var(--muted)' }}>取得店</dt>
-              <dd style={{ margin: 0 }}>{infoCell.shopName || '未入力'}</dd>
+              {infoCell.visitedOnly ? (
+                <>
+                  <dt style={{ color: 'var(--muted)' }}>状態</dt>
+                  <dd style={{ margin: 0, color: '#0B4EA2', fontWeight: 600 }}>訪問のみ（未取得）</dd>
+                  <dt style={{ color: 'var(--muted)' }}>訪問日</dt>
+                  <dd style={{ margin: 0 }}>{infoCell.sticker.visitedDate || '未入力'}</dd>
+                </>
+              ) : (
+                <>
+                  <dt style={{ color: 'var(--muted)' }}>取得日</dt>
+                  <dd style={{ margin: 0 }}>{infoCell.sticker.acquiredDate || '未入力'}</dd>
+                  <dt style={{ color: 'var(--muted)' }}>都道府県</dt>
+                  <dd style={{ margin: 0 }}>{infoCell.prefecture || '未入力'}</dd>
+                  <dt style={{ color: 'var(--muted)' }}>取得店</dt>
+                  <dd style={{ margin: 0 }}>{infoCell.shopName || '未入力'}</dd>
+                </>
+              )}
               <dt style={{ color: 'var(--muted)' }}>メモ</dt>
               <dd style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{infoCell.sticker.memo || '未入力'}</dd>
             </dl>
@@ -2042,7 +2087,7 @@ function VisitPlanView({ stickers, shops, onOpen, onToggleWantToVisit, onToggleR
     shops.map(sh => ({ ...sh, sticker: stickers.find(s => s.id === sh.stickerId) })).filter(sh => sh.sticker),
   [shops, stickers]);
 
-  const prefectures = useMemo(() => Array.from(new Set(shops.map(sh => sh.prefecture).filter(Boolean))).sort(), [shops]);
+  const prefectures = useMemo(() => Array.from(new Set(shops.map(sh => sh.prefecture).filter(Boolean))).sort((a, b) => prefJisIndex(a) - prefJisIndex(b)), [shops]);
 
   const searchResults = useMemo(() => {
     if (!query.trim() && prefFilter === 'all') return [];
@@ -2743,6 +2788,7 @@ textarea { resize: vertical; }
 .binder-cover { width: 100%; max-width: 420px; aspect-ratio: 3 / 4; margin: 0 auto; border-radius: 12px; position: relative; display: flex; align-items: center; justify-content: center; background: linear-gradient(160deg, #1f2f52 0%, #132243 55%, #0c1830 100%); box-shadow: 0 10px 30px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.06); }
 .binder-cover::before { content: ''; position: absolute; inset: 12px; border: 1.5px dashed rgba(200,210,225,0.35); border-radius: 8px; }
 .binder-cover-title { color: #dfe4ec; text-align: center; font-weight: 700; letter-spacing: 0.08em; line-height: 1.7; padding: 0 16px; text-shadow: 0 1px 0 #000, 0 0 12px rgba(255,255,255,0.15); }
+.binder-cell.visited { outline: 2px solid #0B4EA2; outline-offset: -2px; border-radius: 8px; }
 .binder-cover-title .big { font-size: 26px; }
 .binder-cover-title .small { font-size: 15px; font-weight: 600; }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; flex-shrink: 0; }
