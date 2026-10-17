@@ -901,14 +901,20 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const incoming = JSON.parse(reader.result);
+        const text = String(reader.result || '').replace(/^\uFEFF/, '').trim();
+        const incoming = JSON.parse(text);
+        if (!incoming || !Array.isArray(incoming.stickers) || !Array.isArray(incoming.shops)) {
+          showToast('マスターデータの形式が違います（stickers / shops が必要です）');
+          return;
+        }
         const { nextStickers, nextShops, counts } = applyMasterData(incoming, stickers, shops);
         setStickers(nextStickers);
         setShops(nextShops);
         if (incoming.version) localStorage.setItem('kokudo-master-version', incoming.version);
         showToast(`マスター更新: ステッカー新規${counts.addedStickers}/更新${counts.updatedStickers}、販売店新規${counts.addedShops}/更新${counts.updatedShops}`);
-      } catch (err) { showToast('更新に失敗しました'); }
+      } catch (err) { showToast('読み込みに失敗しました（ファイルの内容を確認してください）'); }
     };
+    reader.onerror = () => showToast('ファイルを読み込めませんでした');
     reader.readAsText(file);
     e.target.value = '';
   };
@@ -2548,7 +2554,7 @@ function SettingsView({
         </p>
         <label className="btn-secondary" style={{ display: 'inline-flex', cursor: 'pointer', marginTop: 6 }}>
           <Upload size={15} /> マスターJSONを選択
-          <input type="file" accept=".json" style={{ display: 'none' }} onChange={onMergeMaster} />
+          <input type="file" accept="application/json,text/plain,.json,*/*" style={{ display: 'none' }} onChange={onMergeMaster} />
         </label>
       </div>
 
