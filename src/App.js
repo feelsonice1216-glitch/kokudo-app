@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Home, LayoutGrid, List as ListIcon, BarChart3, Settings, Search,
-  Star, MapPin, Navigation, Plus, X, Download, Upload, Trash2,
+  Star, MapPin, Plus, X, Download, Upload, Trash2,
   CalendarDays, Store, Check, RotateCcw, Locate, Images, Bell
 } from 'lucide-react';
 import {
@@ -68,9 +68,6 @@ const fmtAcqDateShort = (s) => {
 const PREF_JIS_ORDER = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県'];
 const prefJisIndex = (name) => { const i = PREF_JIS_ORDER.indexOf(name); return i === -1 ? 999 : i; };
 
-/* コンビニチェーン判定用（店名にこれらの語を含む場合はコンビニとみなす） */
-const CONVENIENCE_KEYWORDS = ['セブン-イレブン', 'セブンイレブン', 'ファミリーマート', 'ローソン', 'セイコーマート', 'ミニストップ', 'デイリーヤマザキ', 'ポプラ', 'セーブオン'];
-const isConvenienceStore = (name) => !!name && CONVENIENCE_KEYWORDS.some(k => name.includes(k));
 
 /* "9:00-17:00" のような営業時間の文字列から開始・終了(分)を取り出す。"24時間"は0:00-24:00扱い */
 function parseBusinessHours(text) {
@@ -84,7 +81,6 @@ function parseBusinessHours(text) {
   if (closeMin <= openMin) closeMin += 24 * 60; // 日をまたぐ場合
   return { openMin, closeMin, label: text };
 }
-const timeToMin = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
 /* 分を「H:MM」表示にする（24時を超える場合は翌日表記） */
 const fmtMin = (min) => {
   const next = min >= 24 * 60;
@@ -94,6 +90,8 @@ const fmtMin = (min) => {
   return `${next ? '翌' : ''}${h}:${m}`;
 };
 
+/* 画面に表示するバージョン（反映確認用）。更新のたびに変更する */
+const APP_BUILD = '2026-10-15-1';
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 /* 端末に保存する表示・動作設定 */
@@ -483,7 +481,7 @@ function DetailModal({ sticker, shopsForSticker, onClose, onSave, onDelete }) {
             </label>
           </div>
 
-          {f.visitedOnly && !f.acquired && (
+          {f.visitedOnly && (
             <div style={fieldGrid}>
               <Field label="訪問日">
                 <div style={{ display: 'flex', gap: 6 }}>
@@ -2452,6 +2450,7 @@ function SettingsView({
         <div>
           <div className="eyebrow">SETTINGS</div>
           <h1>設定・バックアップ</h1>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>アプリ版：{APP_BUILD}</div>
         </div>
       </header>
 
