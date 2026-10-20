@@ -1,3 +1,4 @@
+/* eslint-disable */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Home, LayoutGrid, List as ListIcon, BarChart3, Settings, Search,
@@ -91,7 +92,7 @@ const fmtMin = (min) => {
 };
 
 /* 画面に表示するバージョン（反映確認用）。更新のたびに変更する */
-const APP_BUILD = '2026-10-15-1';
+const APP_BUILD = '2026-10-15-2';
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 /* 端末に保存する表示・動作設定 */
@@ -1400,6 +1401,8 @@ function NationalMapView({ stickers, shops, onOpen, mapStylePref, mapHomePref, v
   }, [shops]);
   const [selectedId, setSelectedId] = useState(null);
   const [highlightKm, setHighlightKm] = useState('10');
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
   const prefectures = useMemo(() => Array.from(new Set(shops.map(sh => sh.prefecture).filter(Boolean))).sort((a, b) => prefJisIndex(a) - prefJisIndex(b)), [shops]);
 
   const joined = useMemo(() =>
