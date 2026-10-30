@@ -36,7 +36,7 @@ const stickerDisplayRegion = (s) => {
   const primary = s.acquired ? (list.find(sh => sh.id === s.acquiredShopId) || list[0]) : list[0];
   return primary?.prefecture ? shopRegion(primary.prefecture) : (s.region || '');
 };
-const METHODS = ['現地購入', 'オンライン', 'フリマアプリ', '頂き物', 'その他'];
+const METHODS = ['現地購入', 'オンライン', 'フリマアプリ', '代理購入', '頂き物', 'その他'];
 
 /* 都道府県庁所在地のおおよその座標（地図の初期表示位置に使用） */
 const PREF_COORDS = {
@@ -877,7 +877,7 @@ export default function App() {
     const idMap = {};
     let addedStickers = 0, updatedStickers = 0;
     incStickers.forEach((inc, i) => {
-      const idx = nextStickers.findIndex(s => s.routeNumber === inc.routeNumber && s.name === inc.name);
+      const idx = nextStickers.findIndex(s => s.routeNumber === inc.routeNumber);
       if (idx >= 0) {
         updatedStickers++;
         idMap[inc.id ?? i] = nextStickers[idx].id;
@@ -1862,7 +1862,11 @@ function CollectionFileView({ stickers, shops, onOpen }) {
 
   const cells = useMemo(() => {
     const byNumber = new Map();
-    stickers.forEach(s => { byNumber.set(s.routeNumber, s); });
+    const rank = (s) => (s.acquired ? 3 : (s.visitedOnly ? 2 : 1));
+    stickers.forEach(s => {
+      const cur = byNumber.get(s.routeNumber);
+      if (!cur || rank(s) > rank(cur)) byNumber.set(s.routeNumber, s);
+    });
     const maxNumber = stickers.reduce((m, s) => Math.max(m, s.routeNumber), 0);
     const list = [];
     for (let n = 1; n <= maxNumber; n++) {
