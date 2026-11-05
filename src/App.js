@@ -30,6 +30,41 @@ const PREF_REGION = {
   '福岡県': '九州・沖縄', '佐賀県': '九州・沖縄', '長崎県': '九州・沖縄', '熊本県': '九州・沖縄', '大分県': '九州・沖縄', '宮崎県': '九州・沖縄', '鹿児島県': '九州・沖縄', '沖縄県': '九州・沖縄',
 };
 const shopRegion = (prefecture) => PREF_REGION[prefecture] || '';
+/* 同じ国道番号のステッカーを1件にまとめる（店舗は付け替え、同じ店は1件にする） */
+const cleanDuplicateStickers = (stickersIn, shopsIn) => {
+  const rank = (s) => (s.acquired ? 3 : (s.visitedOnly ? 2 : 1));
+  const groups = new Map();
+  stickersIn.forEach(s => {
+    if (!groups.has(s.routeNumber)) groups.set(s.routeNumber, []);
+    groups.get(s.routeNumber).push(s);
+  });
+  const idMap = {};
+  const keptStickers = [];
+  groups.forEach((list, n) => {
+    if (list.length === 1) { keptStickers.push(list[0]); return; }
+    const best = list.reduce((a, b) => (rank(b) > rank(a) ? b : a));
+    const merged = { ...best };
+    list.forEach(s => {
+      Object.keys(s).forEach(k => {
+        if ((merged[k] === undefined || merged[k] === '' || merged[k] === null) && s[k] !== undefined && s[k] !== '') merged[k] = s[k];
+      });
+    });
+    const preferred = list.find(s => s.name === `国道${n}号線`);
+    if (preferred) merged.name = preferred.name;
+    list.forEach(s => { idMap[s.id] = merged.id; });
+    keptStickers.push(merged);
+  });
+  const seen = new Set();
+  const shopsOut = [];
+  shopsIn.forEach(sh => {
+    const sid = idMap[sh.stickerId] ?? sh.stickerId;
+    const key = sid + '|' + sh.name + '|' + sh.prefecture;
+    if (seen.has(key)) return;
+    seen.add(key);
+    shopsOut.push({ ...sh, stickerId: sid });
+  });
+  return { stickers: keptStickers, shops: shopsOut };
+};
 /* ステッカーの表示地域：取得店（未取得は最初の販売店）の地域。販売店がなければ設定値 */
 const stickerDisplayRegion = (s) => {
   const list = s.shopsList || [];
@@ -92,7 +127,7 @@ const fmtMin = (min) => {
 };
 
 /* 画面に表示するバージョン（反映確認用）。更新のたびに変更する */
-const APP_BUILD = '2026-10-15-2';
+const APP_BUILD = '2026-10-15-3';
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 /* 端末に保存する表示・動作設定 */
@@ -327,7 +362,7 @@ function toCSVRows(stickers, shops) {
 const ONIGIRI_OUTER_PATH = 'M30,4 L70,4 C85,4 96,15 96,32 C96,52 90,64 78,76 L54,101 C52,104 48,104 46,101 L22,76 C10,64 4,52 4,32 C4,15 15,4 30,4 Z';
 const ONIGIRI_INNER_PATH = 'M32,10 L68,10 C80,10 90,19 90,33 C90,50 85,60 75,70 L52,95 C51,97 49,97 48,95 L25,70 C15,60 10,50 10,33 C10,19 20,10 32,10 Z';
 
-function RouteBadge({ number, acquired, status, size = 44 }) {
+function RouteBadge({ number, acquired, status, size = 44, outlineBlue = false }) {
   const h = Math.round(size * 1.12);
   const showLabel = size >= 30;
   const resolvedStatus = status || (acquired ? 'acquired' : 'pending');
@@ -338,7 +373,7 @@ function RouteBadge({ number, acquired, status, size = 44 }) {
       width={size} height={h} viewBox="0 0 100 110"
       style={{ flexShrink: 0, filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.3))' }}
     >
-      <path d={ONIGIRI_OUTER_PATH} fill="#fff" />
+      <path d={ONIGIRI_OUTER_PATH} fill={outlineBlue ? '#0B4EA2' : '#fff'} />
       <path d={ONIGIRI_INNER_PATH} fill={fill} />
       {showLabel && (
         <>
@@ -919,8 +954,9 @@ export default function App() {
           return;
         }
         const { nextStickers, nextShops, counts } = applyMasterData(incoming, stickers, shops);
-        setStickers(nextStickers);
-        setShops(nextShops);
+        const cleaned = cleanDuplicateStickers(nextStickers, nextShops);
+        setStickers(cleaned.stickers);
+        setShops(cleaned.shops);
         if (incoming.version) localStorage.setItem('kokudo-master-version', incoming.version);
         showToast(`マスター更新: ステッカー新規${counts.addedStickers}/更新${counts.updatedStickers}、販売店新規${counts.addedShops}/更新${counts.updatedShops}`);
       } catch (err) { showToast('読み込みに失敗しました（ファイルの内容を確認してください）'); }
@@ -929,6 +965,16 @@ export default function App() {
     reader.readAsText(file);
     e.target.value = '';
   };
+
+  /* 起動時に、同じ国道番号の重複があれば1件にまとめる */
+  useEffect(() => {
+    if (!ready) return;
+    const c = cleanDuplicateStickers(stickersRef.current, shopsRef.current);
+    if (c.stickers.length !== stickersRef.current.length || c.shops.length !== shopsRef.current.length) {
+      setStickers(c.stickers);
+      setShops(c.shops);
+    }
+  }, [ready]);
 
   /* 起動時に、サイト内のマスターデータを自動で読み込む（版が変わったときだけ反映） */
   useEffect(() => {
@@ -944,8 +990,9 @@ export default function App() {
         if (incoming.version && incoming.version === stored) return;
         const { nextStickers, nextShops } = applyMasterData(incoming, stickersRef.current, shopsRef.current);
         if (cancelled) return;
-        setStickers(nextStickers);
-        setShops(nextShops);
+        const cleaned = cleanDuplicateStickers(nextStickers, nextShops);
+        setStickers(cleaned.stickers);
+        setShops(cleaned.shops);
         if (incoming.version) localStorage.setItem('kokudo-master-version', incoming.version);
         showToast('最新のデータに更新しました');
       } catch (err) {
@@ -1928,7 +1975,7 @@ function CollectionFileView({ stickers, shops, onOpen }) {
           return (
             <div
               key={c.n}
-              className={`binder-cell ${c.status}${c.sticker && c.status === 'pending' && c.sticker.visitedOnly ? ' visited' : ''}`}
+              className={`binder-cell ${c.status}`}
               onClick={() => {
                 if (!c.sticker) return;
                 if (c.status === 'pending' && c.sticker.visitedOnly) { setInfoCell({ sticker: c.sticker, shopName: '', prefecture: '', region: c.sticker.region || '', visitedOnly: true }); return; }
@@ -1937,9 +1984,11 @@ function CollectionFileView({ stickers, shops, onOpen }) {
               }}
               title={c.sticker ? c.sticker.name : `国道${c.n}号（欠番）`}
             >
-              <RouteBadge number={c.n} status={c.status} size={48} />
-              {c.status === 'pending' && c.sticker?.visitedOnly && c.sticker?.visitedDate && (
-                <div className="line date" style={{ color: '#0B4EA2', whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' }}>{fmtAcqDateShort(c.sticker.visitedDate)}</div>
+              <RouteBadge number={c.n} status={c.status} size={48} outlineBlue={c.status === 'pending' && !!c.sticker?.visitedOnly} />
+              {c.status === 'pending' && c.sticker?.visitedOnly && (
+                <div className="line date" style={{ color: '#0B4EA2', whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' }}>
+                  {c.sticker.visitedDate ? fmtAcqDateShort(c.sticker.visitedDate) : '訪問日未入力'}
+                </div>
               )}
               {c.sticker?.kaido && (
                 <div className="line kaido" style={{ whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip', textAlign: 'center', maxWidth: '100%' }}>
@@ -2060,6 +2109,8 @@ function CollectionFileView({ stickers, shops, onOpen }) {
                   <dd style={{ margin: 0 }}>{infoCell.prefecture || '未入力'}</dd>
                   <dt style={{ color: 'var(--muted)' }}>取得店</dt>
                   <dd style={{ margin: 0 }}>{infoCell.shopName || '未入力'}</dd>
+                  <dt style={{ color: 'var(--muted)' }}>取得方法</dt>
+                  <dd style={{ margin: 0 }}>{infoCell.sticker.method || '未入力'}</dd>
                 </>
               )}
               <dt style={{ color: 'var(--muted)' }}>メモ</dt>
